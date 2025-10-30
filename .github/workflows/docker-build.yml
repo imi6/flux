@@ -130,11 +130,14 @@ jobs:
       - name: Build and push Vite multi-arch image
         if: steps.vite-changes.outputs.vite == 'true'
         run: |
+          echo "Building and pushing xydgg/vite-frontend:latest"
           docker buildx build \
             --platform linux/amd64 \
             --push \
-            -t xydgg/vite-frontend \
+            -t xydgg/vite-frontend:latest \
             ./vite-frontend
+          echo "Build completed, checking if image was pushed..."
+          docker buildx imagetools inspect xydgg/vite-frontend:latest
 
   build-java:
     if: contains(github.event.head_commit.message, '[skip java]') == false
@@ -185,8 +188,11 @@ jobs:
       - name: Build and push Java multi-arch image
         if: steps.java-changes.outputs.java == 'true'
         run: |
+          echo "Building and pushing xydgg/springboot-backend:latest"
           docker buildx build \
             --platform linux/amd64 \
             --push \
-            -t xydgg/springboot-backend \
+            -t xydgg/springboot-backend:latest \
             ./springboot-backend
+          echo "Build completed, checking if image was pushed..."
+          docker buildx imagetools inspect xydgg/springboot-backend:latest
