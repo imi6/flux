@@ -16,14 +16,12 @@ services:
       --default-authentication-plugin=mysql_native_password
       --character-set-server=utf8mb4
       --collation-server=utf8mb4_unicode_ci
-      --max_connections=1000
-      --innodb_buffer_pool_size=256M
     networks:
       - gost-network
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       timeout: 10s
-      retries: 10
+      retries: 5
 
   backend:
     image: xydgg/springboot-backend:latest
@@ -35,8 +33,6 @@ services:
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
-      LOG_DIR: /app/logs
-      JAVA_OPTS: "-Xms256m -Xmx512m -Dfile.encoding=UTF-8 -Duser.timezone=Asia/Shanghai"
     ports:
       - "${BACKEND_PORT}:6365"
     volumes:
@@ -50,8 +46,8 @@ services:
       test: ["CMD", "sh", "-c", "wget --no-verbose --tries=1 --spider http://localhost:6365/flow/test || exit 1"]
       interval: 30s
       timeout: 10s
-      retries: 5
-      start_period: 90s
+      retries: 3
+      start_period: 60s
 
   frontend:
     image: xydgg/vite-frontend:latest
@@ -68,19 +64,8 @@ services:
 
 volumes:
   mysql_data:
-    name: mysql_data
-    driver: local
   backend_logs:
-    name: backend_logs
-    driver: local
-
 
 networks:
   gost-network:
-    name: gost-network
     driver: bridge
-    enable_ipv6: true
-    ipam:
-      config:
-        - subnet: 172.20.0.0/16 
-        - subnet: fd00:dead:beef::/48
