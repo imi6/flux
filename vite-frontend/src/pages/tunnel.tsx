@@ -315,6 +315,16 @@ export default function TunnelPage() {
     }
   };
 
+  // 获取隧道类型名称
+  const getTunnelTypeName = (type: number): string => {
+    switch (type) {
+      case 1: return '端口转发';
+      case 2: return '隧道转发';
+      case 3: return '端口复用';
+      default: return '未知类型';
+    }
+  };
+
   // 诊断隧道
   const handleDiagnose = async (tunnel: Tunnel) => {
     setCurrentDiagnosisTunnel(tunnel);
@@ -330,7 +340,7 @@ export default function TunnelPage() {
         toast.error(response.msg || '诊断失败');
         setDiagnosisResult({
           tunnelName: tunnel.name,
-          tunnelType: tunnel.type === 1 ? '端口转发' : '隧道转发',
+          tunnelType: getTunnelTypeName(tunnel.type),
           timestamp: Date.now(),
           results: [{
             success: false,
@@ -348,7 +358,7 @@ export default function TunnelPage() {
       toast.error('网络错误，请重试');
       setDiagnosisResult({
         tunnelName: tunnel.name,
-        tunnelType: tunnel.type === 1 ? '端口转发' : '隧道转发',
+        tunnelType: getTunnelTypeName(tunnel.type),
         timestamp: Date.now(),
         results: [{
           success: false,

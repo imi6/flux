@@ -657,8 +657,8 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
         List<DiagnosisResult> results = new ArrayList<>();
 
         // 3. 根据隧道类型执行不同的诊断策略
-        if (tunnel.getType() == TUNNEL_TYPE_PORT_FORWARD) {
-            // 端口转发：只给入口节点发送诊断指令，TCP ping谷歌443端口
+        if (tunnel.getType() == TUNNEL_TYPE_PORT_FORWARD || tunnel.getType() == TUNNEL_TYPE_PORT_REUSE) {
+            // 端口转发和端口复用：只给入口节点发送诊断指令，TCP ping谷歌443端口
             DiagnosisResult inResult = performTcpPingDiagnosisWithConnectionCheck(inNode, "www.google.com", 443, "入口->外网");
             results.add(inResult);
         } else {
@@ -676,7 +676,7 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
         Map<String, Object> diagnosisReport = new HashMap<>();
         diagnosisReport.put("tunnelId", tunnelId);
         diagnosisReport.put("tunnelName", tunnel.getName());
-        diagnosisReport.put("tunnelType", tunnel.getType() == TUNNEL_TYPE_PORT_FORWARD ? "端口转发" : "隧道转发");
+        diagnosisReport.put("tunnelType", getTunnelTypeName(tunnel.getType()));
         diagnosisReport.put("results", results);
         diagnosisReport.put("timestamp", System.currentTimeMillis());
 
@@ -684,18 +684,41 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
     }
 
     /**
+     * 获取隧道类型名称
+     *
+     * @param type 隧道类型
+     * @return 类型名称
+     */
+    private String getTunnelTypeName(int type) {
+        switch (type) {
+            case TUNNEL_TYPE_PORT_FORWARD:
+                return "端口转发";
+            case TUNNEL_TYPE_TUNNEL_FORWARD:
+                return "隧道转发";
+            case TUNNEL_TYPE_PORT_REUSE:
+                return "端口复用";
+            default:
+                return "未知类型";
+        }
+    }
+
+    /**
      * 获取出口节点的TCP端口
      * 通过隧道ID查找转发服务的出口端口，如果没有则使用默认SSH端口22
-     * 
+     *
      * @param tunnelId 隧道ID
      * @return TCP端口号
      */
     private int getOutNodeTcpPort(Long tunnelId) {
         List<Forward> forwards = forwardService.list(new QueryWrapper<Forward>().eq("tunnel_id", tunnelId).eq("status", TUNNEL_STATUS_ACTIVE));
         if (!forwards.isEmpty()) {
-            return forwards.get(0).getOutPort();
+            Forward forward = forwards.get(0);
+            // 检查 outPort 是否为 null
+            if (forward.getOutPort() != null) {
+                return forward.getOutPort();
+            }
         }
-        // 如果没有转发服务，使用默认SSH端口22
+        // 如果没有转发服务或出口端口为空，使用默认SSH端口22
         return 22;
     }
 
