@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Card, CardBody, CardHeader } from "@heroui/card";
 import { Button } from "@heroui/button";
 import { Input } from "@heroui/input";
+import { Textarea } from "@heroui/input";
 import { Select, SelectItem } from "@heroui/select";
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from "@heroui/modal";
 import { Chip } from "@heroui/chip";
@@ -23,7 +24,7 @@ import {
 interface Tunnel {
   id: number;
   name: string;
-  type: number; // 1: 端口转发, 2: 隧道转发
+  type: number; // 1: 端口转发, 2: 隧道转发, 3: 端口复用
   inNodeId: number;
   outNodeId?: number;
   inIp: string;
@@ -32,6 +33,7 @@ interface Tunnel {
   tcpListenAddr: string;
   udpListenAddr: string;
   interfaceName?: string;
+  ssConfig?: string; // SS节点配置
   flow: number; // 1: 单向, 2: 双向
   trafficRatio: number;
   status: number;
@@ -54,6 +56,7 @@ interface TunnelForm {
   tcpListenAddr: string;
   udpListenAddr: string;
   interfaceName?: string;
+  ssConfig?: string; // SS节点配置
   flow: number;
   trafficRatio: number;
   status: number;
@@ -103,6 +106,7 @@ export default function TunnelPage() {
     tcpListenAddr: '[::]',
     udpListenAddr: '[::]',
     interfaceName: '',
+    ssConfig: '',
     flow: 1,
     trafficRatio: 1.0,
     status: 1
@@ -146,29 +150,29 @@ export default function TunnelPage() {
   // 表单验证
   const validateForm = (): boolean => {
     const newErrors: {[key: string]: string} = {};
-    
+
     if (!form.name.trim()) {
       newErrors.name = '请输入隧道名称';
     } else if (form.name.length < 2 || form.name.length > 50) {
       newErrors.name = '隧道名称长度应在2-50个字符之间';
     }
-    
+
     if (!form.inNodeId) {
       newErrors.inNodeId = '请选择入口节点';
     }
-    
+
     if (!form.tcpListenAddr.trim()) {
       newErrors.tcpListenAddr = '请输入TCP监听地址';
     }
-    
+
     if (!form.udpListenAddr.trim()) {
       newErrors.udpListenAddr = '请输入UDP监听地址';
     }
-    
+
     if (form.trafficRatio < 0.0 || form.trafficRatio > 100.0) {
       newErrors.trafficRatio = '流量倍率必须在0.0-100.0之间';
     }
-    
+
     // 隧道转发时的验证
     if (form.type === 2) {
       if (!form.outNodeId) {
@@ -176,12 +180,29 @@ export default function TunnelPage() {
       } else if (form.inNodeId === form.outNodeId) {
         newErrors.outNodeId = '隧道转发模式下，入口和出口不能是同一个节点';
       }
-      
+
       if (!form.protocol) {
         newErrors.protocol = '请选择协议类型';
       }
     }
-    
+
+    // 端口复用时的验证
+    if (form.type === 3) {
+      if (!form.ssConfig || !form.ssConfig.trim()) {
+        newErrors.ssConfig = '请输入SS节点配置';
+      } else {
+        // 验证SS链接格式（基本验证）
+        const ssLines = form.ssConfig.split('\n').map(line => line.trim()).filter(line => line);
+        for (let i = 0; i < ssLines.length; i++) {
+          const line = ssLines[i];
+          if (!line.startsWith('ss://')) {
+            newErrors.ssConfig = `第${i + 1}行格式错误：SS链接必须以ss://开头`;
+            break;
+          }
+        }
+      }
+    }
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -198,6 +219,7 @@ export default function TunnelPage() {
       tcpListenAddr: '[::]',
       udpListenAddr: '[::]',
       interfaceName: '',
+      ssConfig: '',
       flow: 1,
       trafficRatio: 1.0,
       status: 1
@@ -219,6 +241,7 @@ export default function TunnelPage() {
       tcpListenAddr: tunnel.tcpListenAddr || '[::]',
       udpListenAddr: tunnel.udpListenAddr || '[::]',
       interfaceName: tunnel.interfaceName || '',
+      ssConfig: tunnel.ssConfig || '',
       flow: tunnel.flow,
       trafficRatio: tunnel.trafficRatio,
       status: tunnel.status
@@ -380,6 +403,8 @@ export default function TunnelPage() {
         return { text: '端口转发', color: 'primary' };
       case 2:
         return { text: '隧道转发', color: 'secondary' };
+      case 3:
+        return { text: '端口复用', color: 'success' };
       default:
         return { text: '未知', color: 'default' };
     }
@@ -649,6 +674,7 @@ export default function TunnelPage() {
                     >
                       <SelectItem key="1">端口转发</SelectItem>
                       <SelectItem key="2">隧道转发</SelectItem>
+                      <SelectItem key="3">端口复用</SelectItem>
                     </Select>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -758,6 +784,22 @@ export default function TunnelPage() {
                         }
                       />
                     </div>
+
+                    {/* 端口复用时显示SS节点配置 */}
+                    {form.type === 3 && (
+                      <Textarea
+                        label="SS节点配置"
+                        placeholder="请输入SS节点配置&#10;例如:&#10;ss://method:password@server:port&#10;或多个节点配置，每行一个"
+                        value={form.ssConfig}
+                        onChange={(e) => setForm(prev => ({ ...prev, ssConfig: e.target.value }))}
+                        isInvalid={!!errors.ssConfig}
+                        errorMessage={errors.ssConfig}
+                        variant="bordered"
+                        description="支持标准SS链接格式，多个节点用换行分隔"
+                        minRows={4}
+                        maxRows={8}
+                      />
+                    )}
 
                     {/* 隧道转发时显示出口网卡配置 */}
                     {form.type === 2 && (

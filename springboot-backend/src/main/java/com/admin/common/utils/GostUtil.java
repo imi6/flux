@@ -289,6 +289,173 @@ public class GostUtil {
         return WebSocketServer.send_msg(node_id, data, "DeleteChains");
     }
 
+    /**
+     * 添加SS代理链
+     * @param node_id 节点ID
+     * @param name 服务名称
+     * @param ssConfig SS节点配置（ss://链接格式）
+     * @return 操作结果
+     */
+    public static GostDto AddSSChain(Long node_id, String name, String ssConfig) {
+        JSONArray hops = new JSONArray();
+
+        // 解析SS配置，支持多行
+        String[] ssLines = ssConfig.split("\n");
+        int hopNum = 0;
+
+        for (String ssLine : ssLines) {
+            ssLine = ssLine.trim();
+            if (ssLine.isEmpty() || !ssLine.startsWith("ss://")) {
+                continue;
+            }
+
+            // 解析SS链接: ss://method:password@server:port
+            try {
+                String ssData = ssLine.substring(5); // 移除 "ss://"
+                String[] parts = ssData.split("@");
+                if (parts.length != 2) {
+                    continue;
+                }
+
+                String[] authParts = parts[0].split(":");
+                if (authParts.length != 2) {
+                    continue;
+                }
+
+                String method = authParts[0];
+                String password = authParts[1];
+                String serverAddr = parts[1];
+
+                // 创建SS节点
+                JSONObject node = new JSONObject();
+                node.put("name", "ss-node-" + hopNum);
+                node.put("addr", serverAddr);
+
+                // SS connector配置
+                JSONObject connector = new JSONObject();
+                connector.put("type", "ss");
+
+                // SS认证配置
+                JSONObject auth = new JSONObject();
+                auth.put("username", method);
+                auth.put("password", password);
+                connector.put("auth", auth);
+
+                node.put("connector", connector);
+
+                // Dialer配置
+                JSONObject dialer = new JSONObject();
+                dialer.put("type", "tcp");
+                node.put("dialer", dialer);
+
+                // 创建hop
+                JSONArray nodes = new JSONArray();
+                nodes.add(node);
+
+                JSONObject hop = new JSONObject();
+                hop.put("name", "hop-" + hopNum);
+                hop.put("nodes", nodes);
+
+                hops.add(hop);
+                hopNum++;
+            } catch (Exception e) {
+                // 解析失败，跳过该行
+                continue;
+            }
+        }
+
+        JSONObject data = new JSONObject();
+        data.put("name", name + "_ss_chain");
+        data.put("hops", hops);
+
+        return WebSocketServer.send_msg(node_id, data, "AddChains");
+    }
+
+    /**
+     * 更新SS代理链
+     */
+    public static GostDto UpdateSSChain(Long node_id, String name, String ssConfig) {
+        JSONArray hops = new JSONArray();
+
+        // 解析SS配置，支持多行
+        String[] ssLines = ssConfig.split("\n");
+        int hopNum = 0;
+
+        for (String ssLine : ssLines) {
+            ssLine = ssLine.trim();
+            if (ssLine.isEmpty() || !ssLine.startsWith("ss://")) {
+                continue;
+            }
+
+            // 解析SS链接
+            try {
+                String ssData = ssLine.substring(5);
+                String[] parts = ssData.split("@");
+                if (parts.length != 2) {
+                    continue;
+                }
+
+                String[] authParts = parts[0].split(":");
+                if (authParts.length != 2) {
+                    continue;
+                }
+
+                String method = authParts[0];
+                String password = authParts[1];
+                String serverAddr = parts[1];
+
+                JSONObject node = new JSONObject();
+                node.put("name", "ss-node-" + hopNum);
+                node.put("addr", serverAddr);
+
+                JSONObject connector = new JSONObject();
+                connector.put("type", "ss");
+
+                JSONObject auth = new JSONObject();
+                auth.put("username", method);
+                auth.put("password", password);
+                connector.put("auth", auth);
+
+                node.put("connector", connector);
+
+                JSONObject dialer = new JSONObject();
+                dialer.put("type", "tcp");
+                node.put("dialer", dialer);
+
+                JSONArray nodes = new JSONArray();
+                nodes.add(node);
+
+                JSONObject hop = new JSONObject();
+                hop.put("name", "hop-" + hopNum);
+                hop.put("nodes", nodes);
+
+                hops.add(hop);
+                hopNum++;
+            } catch (Exception e) {
+                continue;
+            }
+        }
+
+        JSONObject data = new JSONObject();
+        data.put("name", name + "_ss_chain");
+        data.put("hops", hops);
+
+        JSONObject req = new JSONObject();
+        req.put("chain", name + "_ss_chain");
+        req.put("data", data);
+
+        return WebSocketServer.send_msg(node_id, req, "UpdateChains");
+    }
+
+    /**
+     * 删除SS代理链
+     */
+    public static GostDto DeleteSSChain(Long node_id, String name) {
+        JSONObject data = new JSONObject();
+        data.put("chain", name + "_ss_chain");
+        return WebSocketServer.send_msg(node_id, data, "DeleteChains");
+    }
+
     private static JSONObject createLimiterData(Long name, String speed) {
         JSONObject data = new JSONObject();
         data.put("name", name.toString());
@@ -320,7 +487,7 @@ public class GostUtil {
         }
 
         // 配置处理器
-        JSONObject handler = createHandler(protocol, name, fow_type);
+        JSONObject handler = createHandler(protocol, name, fow_type, tunnel);
         service.put("handler", handler);
 
         // 配置监听器
@@ -332,16 +499,29 @@ public class GostUtil {
             JSONObject forwarder = createForwarder(remoteAddr, strategy);
             service.put("forwarder", forwarder);
         }
+
+        // 端口复用需要配置转发器（转发到目标服务器）
+        if (isPortReuse(fow_type) && StringUtils.isNotBlank(remoteAddr)) {
+            JSONObject forwarder = createForwarder(remoteAddr, strategy);
+            service.put("forwarder", forwarder);
+        }
         return service;
     }
 
-    private static JSONObject createHandler(String protocol, String name, Integer fow_type) {
+    private static JSONObject createHandler(String protocol, String name, Integer fow_type, Tunnel tunnel) {
         JSONObject handler = new JSONObject();
-        handler.put("type", protocol);
 
-        // 隧道转发需要添加链配置
-        if (isTunnelForwarding(fow_type)) {
-            handler.put("chain", name + "_chains");
+        // 端口复用：使用 TCP handler + SS chain
+        if (isPortReuse(fow_type)) {
+            handler.put("type", protocol);
+            handler.put("chain", name + "_ss_chain");
+        } else {
+            handler.put("type", protocol);
+
+            // 隧道转发需要添加链配置
+            if (isTunnelForwarding(fow_type)) {
+                handler.put("chain", name + "_chains");
+            }
         }
 
         return handler;
@@ -391,7 +571,11 @@ public class GostUtil {
     }
 
     private static boolean isTunnelForwarding(Integer fow_type) {
-        return fow_type != null && fow_type != 1;
+        return fow_type != null && fow_type == 2;
+    }
+
+    private static boolean isPortReuse(Integer fow_type) {
+        return fow_type != null && fow_type == 3;
     }
 
 }

@@ -133,7 +133,7 @@ jobs:
           docker buildx build \
             --platform linux/amd64 \
             --push \
-            -t bqlpfy/vite-frontend \
+            -t xydgg/vite-frontend \
             ./vite-frontend
 
   build-java:
@@ -188,5 +188,5 @@ jobs:
           docker buildx build \
             --platform linux/amd64 \
             --push \
-            -t bqlpfy/springboot-backend \
+            -t xydgg/springboot-backend \
             ./springboot-backend

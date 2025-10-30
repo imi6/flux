@@ -45,7 +45,7 @@ public class Tunnel extends BaseEntity {
     private String outIp;
 
     /**
-     * 隧道类型（1-端口转发，2-隧道转发）
+     * 隧道类型（1-端口转发，2-隧道转发，3-端口复用）
      */
     private Integer type;
 
@@ -70,4 +70,9 @@ public class Tunnel extends BaseEntity {
     private String udpListenAddr;
 
     private String interfaceName;
+
+    /**
+     * SS节点配置（端口复用时使用）
+     */
+    private String ssConfig;
 }

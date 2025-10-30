@@ -43,6 +43,7 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
     private static final int ADMIN_ROLE_ID = 0;
     private static final int TUNNEL_TYPE_PORT_FORWARD = 1;
     private static final int TUNNEL_TYPE_TUNNEL_FORWARD = 2;
+    private static final int TUNNEL_TYPE_PORT_REUSE = 3;
     private static final int FORWARD_STATUS_ACTIVE = 1;
     private static final int FORWARD_STATUS_PAUSED = 0;
     private static final int FORWARD_STATUS_ERROR = -1;
@@ -997,6 +998,15 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
             }
         }
 
+        // 端口复用需要创建SS代理链
+        if (tunnel.getType() == TUNNEL_TYPE_PORT_REUSE) {
+            R ssChainResult = createSSChainService(nodeInfo.getInNode(), serviceName, tunnel.getSsConfig());
+            if (ssChainResult.getCode() != 0) {
+                GostUtil.DeleteSSChain(nodeInfo.getInNode().getId(), serviceName);
+                return ssChainResult;
+            }
+        }
+
         String interfaceName = null;
         // 创建主服务
         if (tunnel.getType() != TUNNEL_TYPE_TUNNEL_FORWARD) { // 不是隧道转发服务才会存在网络接口
@@ -1007,6 +1017,9 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
         R serviceResult = createMainService(nodeInfo.getInNode(), serviceName, forward, limiter, tunnel.getType(), tunnel, forward.getStrategy(), interfaceName);
         if (serviceResult.getCode() != 0) {
             GostUtil.DeleteChains(nodeInfo.getInNode().getId(), serviceName);
+            if (tunnel.getType() == TUNNEL_TYPE_PORT_REUSE) {
+                GostUtil.DeleteSSChain(nodeInfo.getInNode().getId(), serviceName);
+            }
             if (nodeInfo.getOutNode() != null) {
                 GostUtil.DeleteRemoteService(nodeInfo.getOutNode().getId(), serviceName);
             }
@@ -1035,6 +1048,16 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
                 return remoteResult;
             }
         }
+
+        // 端口复用需要更新SS代理链
+        if (tunnel.getType() == TUNNEL_TYPE_PORT_REUSE) {
+            R ssChainResult = updateSSChainService(nodeInfo.getInNode(), serviceName, tunnel.getSsConfig());
+            if (ssChainResult.getCode() != 0) {
+                updateForwardStatusToError(forward);
+                return ssChainResult;
+            }
+        }
+
         String interfaceName = null;
         // 创建主服务
         if (tunnel.getType() != TUNNEL_TYPE_TUNNEL_FORWARD) { // 不是隧道转发服务才会存在网络接口
@@ -1123,6 +1146,16 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
             }
         }
 
+        // 如果原隧道是端口复用类型，需要删除SS代理链
+        if (oldTunnel.getType() == TUNNEL_TYPE_PORT_REUSE) {
+            if (!oldNodeInfo.isHasError() && oldNodeInfo.getInNode() != null) {
+                GostDto ssChainResult = GostUtil.DeleteSSChain(oldNodeInfo.getInNode().getId(), serviceName);
+                if (!isGostOperationSuccess(ssChainResult)) {
+                    log.info("删除SS代理链失败: {}", ssChainResult.getMsg());
+                }
+            }
+        }
+
         return R.ok();
     }
 
@@ -1153,6 +1186,14 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
             }
         }
 
+        // 端口复用需要删除SS代理链
+        if (tunnel.getType() == TUNNEL_TYPE_PORT_REUSE) {
+            GostDto ssChainResult = GostUtil.DeleteSSChain(nodeInfo.getInNode().getId(), serviceName);
+            if (!isGostOperationSuccess(ssChainResult)) {
+                return R.err(ssChainResult.getMsg());
+            }
+        }
+
         return R.ok();
     }
 
@@ -1173,6 +1214,14 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
      */
     private R createRemoteService(Node outNode, String serviceName, Forward forward, String protocol, String interfaceName) {
         GostDto result = GostUtil.AddRemoteService(outNode.getId(), serviceName, forward.getOutPort(), forward.getRemoteAddr(), protocol, forward.getStrategy(), interfaceName);
+        return isGostOperationSuccess(result) ? R.ok() : R.err(result.getMsg());
+    }
+
+    /**
+     * 创建SS代理链服务
+     */
+    private R createSSChainService(Node inNode, String serviceName, String ssConfig) {
+        GostDto result = GostUtil.AddSSChain(inNode.getId(), serviceName, ssConfig);
         return isGostOperationSuccess(result) ? R.ok() : R.err(result.getMsg());
     }
 
@@ -1198,6 +1247,17 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
             createResult = GostUtil.AddChains(inNode.getId(), serviceName, remoteAddr, protocol, interfaceName);
         }
         return isGostOperationSuccess(createResult) ? R.ok() : R.err(createResult.getMsg());
+    }
+
+    /**
+     * 更新SS代理链服务
+     */
+    private R updateSSChainService(Node inNode, String serviceName, String ssConfig) {
+        GostDto result = GostUtil.UpdateSSChain(inNode.getId(), serviceName, ssConfig);
+        if (result.getMsg().contains(GOST_NOT_FOUND_MSG)) {
+            result = GostUtil.AddSSChain(inNode.getId(), serviceName, ssConfig);
+        }
+        return isGostOperationSuccess(result) ? R.ok() : R.err(result.getMsg());
     }
 
     /**

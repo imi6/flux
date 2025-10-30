@@ -41,4 +41,8 @@ public class TunnelUpdateDto {
 
     @TableField(updateStrategy = FieldStrategy.IGNORED)
     private String interfaceName;
-} 
+
+    // SS节点配置（端口复用时使用）
+    @TableField(updateStrategy = FieldStrategy.IGNORED)
+    private String ssConfig;
+}

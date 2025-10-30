@@ -33,13 +33,16 @@ public class TunnelDto {
     private BigDecimal trafficRatio;
 
     private String interfaceName;
-    
+
     // 协议类型，默认为tls
     private String protocol;
-    
+
     // TCP监听地址，默认为0.0.0.0
     private String tcpListenAddr = "0.0.0.0";
-    
+
     // UDP监听地址，默认为0.0.0.0
     private String udpListenAddr = "0.0.0.0";
-} 
+
+    // SS节点配置（端口复用时使用）
+    private String ssConfig;
+}

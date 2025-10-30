@@ -45,17 +45,18 @@ import java.util.stream.Collectors;
 public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> implements TunnelService {
 
     // ========== 常量定义 ==========
-    
+
     /** 隧道类型常量 */
     private static final int TUNNEL_TYPE_PORT_FORWARD = 1;  // 端口转发
     private static final int TUNNEL_TYPE_TUNNEL_FORWARD = 2; // 隧道转发
-    
+    private static final int TUNNEL_TYPE_PORT_REUSE = 3;    // 端口复用
+
     /** 隧道状态常量 */
     private static final int TUNNEL_STATUS_ACTIVE = 1;      // 启用状态
-    
+
     /** 节点状态常量 */
     private static final int NODE_STATUS_ONLINE = 1;        // 节点在线状态
-    
+
     /** 用户角色常量 */
     private static final int ADMIN_ROLE_ID = 0;             // 管理员角色ID
     
