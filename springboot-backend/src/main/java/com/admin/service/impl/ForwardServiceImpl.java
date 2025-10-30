@@ -459,8 +459,8 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
         List<DiagnosisResult> results = new ArrayList<>();
         String[] remoteAddresses = forward.getRemoteAddr().split(",");
         // 6. 根据隧道类型执行不同的诊断策略
-        if (tunnel.getType() == TUNNEL_TYPE_PORT_FORWARD) {
-            // 端口转发：入口节点直接TCP ping目标地址
+        if (tunnel.getType() == TUNNEL_TYPE_PORT_FORWARD || tunnel.getType() == TUNNEL_TYPE_PORT_REUSE) {
+            // 端口转发和端口复用：入口节点直接TCP ping目标地址
             for (String remoteAddress : remoteAddresses) {
                 // 提取IP和端口
                 String targetIp = extractIpFromAddress(remoteAddress);
@@ -472,11 +472,16 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
                 DiagnosisResult result = performTcpPingDiagnosis(inNode, targetIp, targetPort, "转发->目标");
                 results.add(result);
             }
-        } else {
+        } else if (tunnel.getType() == TUNNEL_TYPE_TUNNEL_FORWARD) {
             // 隧道转发：入口TCP ping出口，出口TCP ping目标
             Node outNode = nodeService.getNodeById(tunnel.getOutNodeId());
             if (outNode == null) {
                 return R.err("出口节点不存在");
+            }
+
+            // 检查出口端口是否为空
+            if (forward.getOutPort() == null) {
+                return R.err("转发出口端口未配置");
             }
 
             // 入口TCP ping出口（使用转发的出口端口）
@@ -494,18 +499,33 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
                 DiagnosisResult outToTargetResult = performTcpPingDiagnosis(outNode, targetIp, targetPort, "出口->目标");
                 results.add(outToTargetResult);
             }
-
         }
 
         // 7. 构建诊断报告
         Map<String, Object> diagnosisReport = new HashMap<>();
         diagnosisReport.put("forwardId", id);
         diagnosisReport.put("forwardName", forward.getName());
-        diagnosisReport.put("tunnelType", tunnel.getType() == TUNNEL_TYPE_PORT_FORWARD ? "端口转发" : "隧道转发");
+        diagnosisReport.put("tunnelType", getTunnelTypeName(tunnel.getType()));
         diagnosisReport.put("results", results);
         diagnosisReport.put("timestamp", System.currentTimeMillis());
 
         return R.ok(diagnosisReport);
+    }
+
+    /**
+     * 获取隧道类型名称
+     */
+    private String getTunnelTypeName(int type) {
+        switch (type) {
+            case TUNNEL_TYPE_PORT_FORWARD:
+                return "端口转发";
+            case TUNNEL_TYPE_TUNNEL_FORWARD:
+                return "隧道转发";
+            case TUNNEL_TYPE_PORT_REUSE:
+                return "端口复用";
+            default:
+                return "未知类型";
+        }
     }
 
     @Override

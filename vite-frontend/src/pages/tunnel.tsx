@@ -981,12 +981,12 @@ export default function TunnelPage() {
                   {currentDiagnosisTunnel && (
                     <div className="flex items-center gap-2">
                       <span className="text-small text-default-500">{currentDiagnosisTunnel.name}</span>
-                      <Chip 
-                        color={currentDiagnosisTunnel.type === 1 ? 'primary' : 'secondary'} 
-                        variant="flat" 
+                      <Chip
+                        color={currentDiagnosisTunnel.type === 1 ? 'primary' : currentDiagnosisTunnel.type === 3 ? 'success' : 'secondary'}
+                        variant="flat"
                         size="sm"
                       >
-                        {currentDiagnosisTunnel.type === 1 ? '端口转发' : '隧道转发'}
+                        {getTunnelTypeName(currentDiagnosisTunnel.type)}
                       </Chip>
                     </div>
                   )}
