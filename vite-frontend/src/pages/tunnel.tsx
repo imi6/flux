@@ -283,7 +283,7 @@ export default function TunnelPage() {
     setForm(prev => ({
       ...prev,
       type,
-      outNodeId: type === 1 ? null : prev.outNodeId,
+      outNodeId: (type === 1 || type === 3) ? null : prev.outNodeId,  // 端口转发和端口复用不需要出口节点
       protocol: type === 1 ? 'tls' : prev.protocol
     }));
   };
@@ -528,14 +528,14 @@ export default function TunnelPage() {
                         <div className="p-2 bg-default-50 dark:bg-default-100/50 rounded border border-default-200 dark:border-default-300">
                           <div className="flex items-center justify-between mb-1">
                             <span className="text-xs font-medium text-default-600">
-                              {tunnel.type === 1 ? '出口节点（同入口）' : '出口节点'}
+                              {(tunnel.type === 1 || tunnel.type === 3) ? '出口节点（同入口）' : '出口节点'}
                             </span>
                           </div>
                           <code className="text-xs font-mono text-foreground block truncate">
-                            {tunnel.type === 1 ? getNodeName(tunnel.inNodeId) : getNodeName(tunnel.outNodeId)}
+                            {(tunnel.type === 1 || tunnel.type === 3) ? getNodeName(tunnel.inNodeId) : getNodeName(tunnel.outNodeId)}
                           </code>
                           <code className="text-xs font-mono text-default-500 block truncate">
-                            {tunnel.type === 1 ? getDisplayIp(tunnel.inIp) : getDisplayIp(tunnel.outIp)}
+                            {(tunnel.type === 1 || tunnel.type === 3) ? getDisplayIp(tunnel.inIp) : getDisplayIp(tunnel.outIp)}
                           </code>
                         </div>
                       </div>

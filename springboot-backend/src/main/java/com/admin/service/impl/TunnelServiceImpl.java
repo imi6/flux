@@ -399,8 +399,8 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
      * @return 设置结果响应
      */
     private R setupOutNodeParameters(Tunnel tunnel, TunnelDto tunnelDto, String server_ip) {
-        if (tunnelDto.getType() == TUNNEL_TYPE_PORT_FORWARD) {
-            // 端口转发：出口参数使用入口参数
+        if (tunnelDto.getType() == TUNNEL_TYPE_PORT_FORWARD || tunnelDto.getType() == TUNNEL_TYPE_PORT_REUSE) {
+            // 端口转发和端口复用：出口参数使用入口参数
             return setupPortForwardOutParameters(tunnel, tunnelDto, server_ip);
         } else {
             // 隧道转发：需要验证出口参数
