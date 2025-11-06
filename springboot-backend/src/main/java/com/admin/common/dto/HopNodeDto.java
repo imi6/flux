@@ -28,16 +28,16 @@ public class HopNodeDto {
     
     /**
      * 节点IP地址
+     * 如果为空或null，后端将自动使用节点的serverIp
      */
-    @NotNull(message = "节点IP不能为空")
     private String nodeIp;
-    
+
     /**
      * 中转端口
      * 该节点监听的端口，用于接收上一跳的连接
+     * 如果为0或null，后端将自动从节点的端口范围中分配可用端口
      */
-    @NotNull(message = "中转端口不能为空")
-    @Min(value = 1, message = "端口号必须大于0")
+    @Min(value = 0, message = "端口号不能为负数")
     @Max(value = 65535, message = "端口号不能大于65535")
     private Integer port;
     

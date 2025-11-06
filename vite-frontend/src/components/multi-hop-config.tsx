@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { Button } from "@heroui/button";
-import { Input } from "@heroui/input";
 import { Select, SelectItem } from "@heroui/select";
 import { Card, CardBody } from "@heroui/card";
 import { Chip } from "@heroui/chip";
@@ -11,12 +10,20 @@ interface HopNode {
   nodeIp: string;
   port: number;
   protocol: string;
-  interfaceName?: string;
   hopOrder: number;
 }
 
+interface Node {
+  id: number;
+  name: string;
+  status: number;
+  serverIp?: string;
+  portSta?: number;
+  portEnd?: number;
+}
+
 interface MultiHopConfigProps {
-  nodes: Array<{ id: number; name: string; status: number }>;
+  nodes: Array<Node>;
   value: HopNode[];
   onChange: (hopNodes: HopNode[]) => void;
   inNodeId?: number | null;
@@ -25,41 +32,40 @@ interface MultiHopConfigProps {
 
 export default function MultiHopConfig({ nodes, value, onChange, inNodeId, outNodeId }: MultiHopConfigProps) {
   const [tempHopNode, setTempHopNode] = useState<Partial<HopNode>>({
-    protocol: 'tls',
-    port: 8080
+    protocol: 'tls'
   });
 
   // 过滤可用节点（排除入口和出口节点，以及已选择的节点）
   const getAvailableNodes = () => {
     const usedNodeIds = value.map(h => h.nodeId);
-    return nodes.filter(node => 
+    return nodes.filter(node =>
       node.status === 1 && // 只显示在线节点
-      node.id !== inNodeId && 
+      node.id !== inNodeId &&
       node.id !== outNodeId &&
       !usedNodeIds.includes(node.id)
     );
   };
 
   const handleAddHopNode = () => {
-    if (!tempHopNode.nodeId || !tempHopNode.nodeIp || !tempHopNode.port) {
+    if (!tempHopNode.nodeId) {
       return;
     }
 
     const selectedNode = nodes.find(n => n.id === tempHopNode.nodeId);
     if (!selectedNode) return;
 
+    // 使用节点的serverIp作为nodeIp，port设置为0表示由后端自动分配
     const newHopNode: HopNode = {
       nodeId: tempHopNode.nodeId,
       nodeName: selectedNode.name,
-      nodeIp: tempHopNode.nodeIp || '',
-      port: tempHopNode.port,
+      nodeIp: selectedNode.serverIp || '', // 使用节点的serverIp
+      port: 0, // 0表示由后端自动分配端口
       protocol: tempHopNode.protocol || 'tls',
-      interfaceName: tempHopNode.interfaceName,
       hopOrder: value.length + 1
     };
 
     onChange([...value, newHopNode]);
-    setTempHopNode({ protocol: 'tls', port: 8080 });
+    setTempHopNode({ protocol: 'tls' });
   };
 
   const handleRemoveHopNode = (index: number) => {
@@ -109,7 +115,6 @@ export default function MultiHopConfig({ nodes, value, onChange, inNodeId, outNo
                       <div className="font-medium">{hop.nodeName}</div>
                       <div className="text-xs text-gray-500">
                         {hop.nodeIp}:{hop.port} ({hop.protocol})
-                        {hop.interfaceName && ` - 网卡: ${hop.interfaceName}`}
                       </div>
                     </div>
                   </div>
@@ -168,6 +173,7 @@ export default function MultiHopConfig({ nodes, value, onChange, inNodeId, outNo
               }));
             }}
             variant="bordered"
+            description="节点IP和端口将由后端自动匹配"
           >
             {getAvailableNodes().map((node) => (
               <SelectItem key={node.id.toString()}>
@@ -176,51 +182,25 @@ export default function MultiHopConfig({ nodes, value, onChange, inNodeId, outNo
             ))}
           </Select>
 
-          <Input
-            label="节点IP地址"
-            placeholder="请输入节点IP地址"
-            value={tempHopNode.nodeIp || ''}
-            onChange={(e) => setTempHopNode(prev => ({ ...prev, nodeIp: e.target.value }))}
-            variant="bordered"
-            description="该节点的公网IP或域名"
-          />
-
-          <Input
-            label="中转端口"
-            type="number"
-            placeholder="请输入端口号"
-            value={tempHopNode.port?.toString() || ''}
-            onChange={(e) => setTempHopNode(prev => ({ ...prev, port: parseInt(e.target.value) || 0 }))}
-            variant="bordered"
-            description="该节点监听的端口，用于接收上一跳的连接"
-          />
-
           <Select
             label="协议类型"
-            placeholder="选择协议"
+            placeholder="请选择协议类型"
             selectedKeys={tempHopNode.protocol ? [tempHopNode.protocol] : ['tls']}
             onChange={(e) => setTempHopNode(prev => ({ ...prev, protocol: e.target.value }))}
             variant="bordered"
           >
             <SelectItem key="tls">TLS</SelectItem>
-            <SelectItem key="quic">QUIC</SelectItem>
-            <SelectItem key="ws">WebSocket</SelectItem>
-            <SelectItem key="wss">WebSocket Secure</SelectItem>
+            <SelectItem key="wss">WSS</SelectItem>
+            <SelectItem key="tcp">TCP</SelectItem>
+            <SelectItem key="mtls">MTLS</SelectItem>
+            <SelectItem key="mwss">MWSS</SelectItem>
+            <SelectItem key="mtcp">MTCP</SelectItem>
           </Select>
-
-          <Input
-            label="网卡名或IP（可选）"
-            placeholder="例如: eth0 或 192.168.1.1"
-            value={tempHopNode.interfaceName || ''}
-            onChange={(e) => setTempHopNode(prev => ({ ...prev, interfaceName: e.target.value }))}
-            variant="bordered"
-            description="指定出口网卡，留空则自动选择"
-          />
 
           <Button
             color="primary"
             onPress={handleAddHopNode}
-            isDisabled={!tempHopNode.nodeId || !tempHopNode.nodeIp || !tempHopNode.port}
+            isDisabled={!tempHopNode.nodeId}
             fullWidth
           >
             添加到链路

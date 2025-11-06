@@ -14,12 +14,14 @@ import com.admin.service.*;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.alibaba.fastjson.JSONObject;
+import com.alibaba.fastjson.JSONArray;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
+import cn.hutool.core.util.StrUtil;
 
 import javax.annotation.Resource;
 import java.util.*;
@@ -1104,7 +1106,7 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
 
         // 多级隧道转发需要更新多级链和远程服务
         if (tunnel.getType() == TUNNEL_TYPE_MULTI_HOP_TUNNEL) {
-            R multiHopChainResult = updateMultiHopChainService(nodeInfo.getInNode(), serviceName, tunnel.getHopNodes());
+            R multiHopChainResult = updateMultiHopChainService(nodeInfo.getInNode(), serviceName, tunnel.getHopNodes(), forward.getId());
             if (multiHopChainResult.getCode() != 0) {
                 updateForwardStatusToError(forward);
                 return multiHopChainResult;
@@ -1273,10 +1275,76 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
     }
 
     /**
+     * 处理多级节点配置，自动填充IP和端口
+     *
+     * @param hopNodesJson 原始的多级节点配置JSON
+     * @param excludeForwardId 要排除的转发ID（用于更新时）
+     * @return 处理后的JSON字符串，如果处理失败返回null
+     */
+    private String processHopNodesConfig(String hopNodesJson, Long excludeForwardId) {
+        try {
+            if (StrUtil.isBlank(hopNodesJson)) {
+                return hopNodesJson;
+            }
+
+            JSONArray hopNodesArray = JSONArray.parseArray(hopNodesJson);
+            if (hopNodesArray == null || hopNodesArray.isEmpty()) {
+                return hopNodesJson;
+            }
+
+            // 处理每个节点
+            for (int i = 0; i < hopNodesArray.size(); i++) {
+                JSONObject hopNode = hopNodesArray.getJSONObject(i);
+                Long nodeId = hopNode.getLong("nodeId");
+
+                if (nodeId == null) {
+                    continue;
+                }
+
+                // 获取节点信息
+                Node node = nodeService.getNodeById(nodeId);
+                if (node == null) {
+                    log.warn("多级节点配置中的节点ID {} 不存在", nodeId);
+                    continue;
+                }
+
+                // 如果nodeIp为空或null，使用节点的serverIp
+                String nodeIp = hopNode.getString("nodeIp");
+                if (StrUtil.isBlank(nodeIp)) {
+                    hopNode.put("nodeIp", node.getServerIp());
+                }
+
+                // 如果port为0或null，自动分配端口
+                Integer port = hopNode.getInteger("port");
+                if (port == null || port == 0) {
+                    Integer allocatedPort = allocatePortForNode(nodeId, excludeForwardId);
+                    if (allocatedPort == null) {
+                        log.error("无法为节点 {} 分配可用端口", nodeId);
+                        return null;
+                    }
+                    hopNode.put("port", allocatedPort);
+                }
+            }
+
+            return hopNodesArray.toJSONString();
+
+        } catch (Exception e) {
+            log.error("处理多级节点配置失败: {}", e.getMessage(), e);
+            return null;
+        }
+    }
+
+    /**
      * 创建多级链服务
      */
     private R createMultiHopChainService(Node inNode, String serviceName, String hopNodesJson) {
-        GostDto result = GostUtil.AddMultiHopChains(inNode.getId(), serviceName, hopNodesJson);
+        // 处理hopNodes配置，自动填充IP和端口
+        String processedHopNodesJson = processHopNodesConfig(hopNodesJson, null);
+        if (processedHopNodesJson == null) {
+            return R.err("处理多级节点配置失败，无法分配端口或获取节点信息");
+        }
+
+        GostDto result = GostUtil.AddMultiHopChains(inNode.getId(), serviceName, processedHopNodesJson);
         return isGostOperationSuccess(result) ? R.ok() : R.err(result.getMsg());
     }
 
@@ -1319,10 +1387,16 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
     /**
      * 更新多级链服务
      */
-    private R updateMultiHopChainService(Node inNode, String serviceName, String hopNodesJson) {
-        GostDto result = GostUtil.UpdateMultiHopChains(inNode.getId(), serviceName, hopNodesJson);
+    private R updateMultiHopChainService(Node inNode, String serviceName, String hopNodesJson, Long excludeForwardId) {
+        // 处理hopNodes配置，自动填充IP和端口
+        String processedHopNodesJson = processHopNodesConfig(hopNodesJson, excludeForwardId);
+        if (processedHopNodesJson == null) {
+            return R.err("处理多级节点配置失败，无法分配端口或获取节点信息");
+        }
+
+        GostDto result = GostUtil.UpdateMultiHopChains(inNode.getId(), serviceName, processedHopNodesJson);
         if (result.getMsg().contains(GOST_NOT_FOUND_MSG)) {
-            result = GostUtil.AddMultiHopChains(inNode.getId(), serviceName, hopNodesJson);
+            result = GostUtil.AddMultiHopChains(inNode.getId(), serviceName, processedHopNodesJson);
         }
         return isGostOperationSuccess(result) ? R.ok() : R.err(result.getMsg());
     }

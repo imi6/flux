@@ -57,6 +57,9 @@ interface Node {
   id: number;
   name: string;
   status: number; // 1: 在线, 0: 离线
+  serverIp?: string;
+  portSta?: number;
+  portEnd?: number;
 }
 
 interface TunnelForm {
