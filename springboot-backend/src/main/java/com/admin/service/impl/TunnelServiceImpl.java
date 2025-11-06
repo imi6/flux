@@ -716,13 +716,37 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
         } else if (tunnel.getType() == TUNNEL_TYPE_MULTI_HOP_TUNNEL) {
             // 多级隧道转发：入口 -> 中转节点 -> 出口 -> 外网
             try {
-                com.alibaba.fastjson.JSONArray hopNodesArray = com.alibaba.fastjson.JSONArray.parseArray(tunnel.getHopNodes());
+                // 从Forward表中获取实际运行的hopNodes配置（包含已分配的端口）
+                List<Forward> forwards = forwardService.list(new QueryWrapper<Forward>()
+                    .eq("tunnel_id", tunnel.getId())
+                    .eq("status", TUNNEL_STATUS_ACTIVE));
+
+                String hopNodesJson = tunnel.getHopNodes();
+
+                // 如果有活跃的Forward，尝试从中获取处理后的hopNodes配置
+                if (!forwards.isEmpty()) {
+                    Forward forward = forwards.get(0);
+                    // 注意：Forward表中没有存储hopNodes，所以我们需要动态处理
+                    // 这里我们使用forwardService的processHopNodesConfig方法
+                    hopNodesJson = forwardService.processHopNodesConfigForDiagnosis(tunnel.getHopNodes(), null);
+                }
+
+                if (hopNodesJson == null) {
+                    return R.err("无法处理多级节点配置，请检查节点端口分配");
+                }
+
+                com.alibaba.fastjson.JSONArray hopNodesArray = com.alibaba.fastjson.JSONArray.parseArray(hopNodesJson);
                 if (hopNodesArray != null && !hopNodesArray.isEmpty()) {
                     // 1. 入口 -> 中转节点
                     for (int i = 0; i < hopNodesArray.size(); i++) {
                         JSONObject hop = hopNodesArray.getJSONObject(i);
                         String hopIp = hop.getString("nodeIp");
                         Integer hopPort = hop.getInteger("port");
+
+                        if (hopPort == null || hopPort == 0) {
+                            log.warn("中转节点{}的端口未分配，跳过诊断", i + 1);
+                            continue;
+                        }
 
                         DiagnosisResult inToHopResult = performTcpPingDiagnosisWithConnectionCheck(
                             inNode,
@@ -754,6 +778,7 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
                 DiagnosisResult outToExternalResult = performTcpPingDiagnosisWithConnectionCheck(outNode, "www.google.com", 443, "出口->外网");
                 results.add(outToExternalResult);
             } catch (Exception e) {
+                log.error("多级隧道诊断失败: {}", e.getMessage(), e);
                 return R.err("解析多级节点配置失败: " + e.getMessage());
             }
         } else {

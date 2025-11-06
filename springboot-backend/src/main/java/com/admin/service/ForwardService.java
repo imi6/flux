@@ -82,4 +82,13 @@ public interface ForwardService extends IService<Forward> {
 
 
     void updateForwardA(Forward forward);
+
+    /**
+     * 处理多级节点配置用于诊断
+     * 自动填充IP和端口信息
+     * @param hopNodesJson 原始的多级节点配置JSON
+     * @param excludeForwardId 要排除的转发ID
+     * @return 处理后的JSON字符串
+     */
+    String processHopNodesConfigForDiagnosis(String hopNodesJson, Long excludeForwardId);
 }

@@ -1360,6 +1360,18 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
     }
 
     /**
+     * 处理多级节点配置用于诊断（公开方法）
+     *
+     * @param hopNodesJson 原始的多级节点配置JSON
+     * @param excludeForwardId 要排除的转发ID
+     * @return 处理后的JSON字符串
+     */
+    @Override
+    public String processHopNodesConfigForDiagnosis(String hopNodesJson, Long excludeForwardId) {
+        return processHopNodesConfig(hopNodesJson, excludeForwardId);
+    }
+
+    /**
      * 处理多级节点配置，自动填充IP和端口
      *
      * @param hopNodesJson 原始的多级节点配置JSON
