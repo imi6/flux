@@ -75,4 +75,11 @@ public class Tunnel extends BaseEntity {
      * SS节点配置（端口复用时使用）
      */
     private String ssConfig;
+
+    /**
+     * 多级节点配置（多级隧道转发时使用）
+     * JSON格式存储节点链路信息
+     * 示例: [{"nodeId":1,"nodeName":"节点A","nodeIp":"192.168.1.1","port":8080,"protocol":"tls","interfaceName":"eth0"}]
+     */
+    private String hopNodes;
 }

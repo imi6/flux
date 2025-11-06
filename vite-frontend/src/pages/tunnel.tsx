@@ -12,19 +12,31 @@ import { Alert } from "@heroui/alert";
 import toast from 'react-hot-toast';
 
 
-import { 
-  createTunnel, 
-  getTunnelList, 
-  updateTunnel, 
+import {
+  createTunnel,
+  getTunnelList,
+  updateTunnel,
   deleteTunnel,
   getNodeList,
   diagnoseTunnel
 } from "@/api";
 
+import MultiHopConfig from "@/components/multi-hop-config";
+
+interface HopNode {
+  nodeId: number;
+  nodeName: string;
+  nodeIp: string;
+  port: number;
+  protocol: string;
+  interfaceName?: string;
+  hopOrder: number;
+}
+
 interface Tunnel {
   id: number;
   name: string;
-  type: number; // 1: 端口转发, 2: 隧道转发, 3: 端口复用
+  type: number; // 1: 端口转发, 2: 隧道转发, 3: 端口复用, 4: 多级隧道转发
   inNodeId: number;
   outNodeId?: number;
   inIp: string;
@@ -34,6 +46,7 @@ interface Tunnel {
   udpListenAddr: string;
   interfaceName?: string;
   ssConfig?: string; // SS节点配置
+  hopNodes?: string; // 多级节点配置(JSON字符串)
   flow: number; // 1: 单向, 2: 双向
   trafficRatio: number;
   status: number;
@@ -57,6 +70,7 @@ interface TunnelForm {
   udpListenAddr: string;
   interfaceName?: string;
   ssConfig?: string; // SS节点配置
+  hopNodes?: HopNode[]; // 多级节点配置
   flow: number;
   trafficRatio: number;
   status: number;
@@ -107,6 +121,7 @@ export default function TunnelPage() {
     udpListenAddr: '[::]',
     interfaceName: '',
     ssConfig: '',
+    hopNodes: [],
     flow: 1,
     trafficRatio: 1.0,
     status: 1
@@ -203,6 +218,32 @@ export default function TunnelPage() {
       }
     }
 
+    // 多级隧道转发时的验证
+    if (form.type === 4) {
+      if (!form.outNodeId) {
+        newErrors.outNodeId = '请选择出口节点';
+      } else if (form.inNodeId === form.outNodeId) {
+        newErrors.outNodeId = '多级隧道转发模式下，入口和出口不能是同一个节点';
+      }
+
+      if (!form.protocol) {
+        newErrors.protocol = '请选择协议类型';
+      }
+
+      if (!form.hopNodes || form.hopNodes.length === 0) {
+        newErrors.hopNodes = '请至少添加一个中转节点';
+      } else {
+        // 验证每个中转节点的配置
+        for (let i = 0; i < form.hopNodes.length; i++) {
+          const hop = form.hopNodes[i];
+          if (!hop.nodeIp || !hop.port) {
+            newErrors.hopNodes = `第${i + 1}个中转节点配置不完整`;
+            break;
+          }
+        }
+      }
+    }
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -220,6 +261,7 @@ export default function TunnelPage() {
       udpListenAddr: '[::]',
       interfaceName: '',
       ssConfig: '',
+      hopNodes: [],
       flow: 1,
       trafficRatio: 1.0,
       status: 1
@@ -231,6 +273,17 @@ export default function TunnelPage() {
   // 编辑隧道 - 只能修改部分字段
   const handleEdit = (tunnel: Tunnel) => {
     setIsEdit(true);
+
+    // 解析hopNodes JSON字符串
+    let hopNodes: HopNode[] = [];
+    if (tunnel.hopNodes) {
+      try {
+        hopNodes = JSON.parse(tunnel.hopNodes);
+      } catch (e) {
+        console.error('解析hopNodes失败:', e);
+      }
+    }
+
     setForm({
       id: tunnel.id,
       name: tunnel.name,
@@ -242,6 +295,7 @@ export default function TunnelPage() {
       udpListenAddr: tunnel.udpListenAddr || '[::]',
       interfaceName: tunnel.interfaceName || '',
       ssConfig: tunnel.ssConfig || '',
+      hopNodes: hopNodes,
       flow: tunnel.flow,
       trafficRatio: tunnel.trafficRatio,
       status: tunnel.status
@@ -284,22 +338,28 @@ export default function TunnelPage() {
       ...prev,
       type,
       outNodeId: (type === 1 || type === 3) ? null : prev.outNodeId,  // 端口转发和端口复用不需要出口节点
-      protocol: type === 1 ? 'tls' : prev.protocol
+      protocol: type === 1 ? 'tls' : prev.protocol,
+      hopNodes: type === 4 ? prev.hopNodes : []  // 只有多级隧道转发需要hopNodes
     }));
   };
 
   // 提交表单
   const handleSubmit = async () => {
     if (!validateForm()) return;
-    
+
     setSubmitLoading(true);
     try {
       const data = { ...form };
-      
-      const response = isEdit 
+
+      // 如果是多级隧道转发，将hopNodes转换为JSON字符串
+      if (data.type === 4 && data.hopNodes) {
+        (data as any).hopNodes = JSON.stringify(data.hopNodes);
+      }
+
+      const response = isEdit
         ? await updateTunnel(data)
         : await createTunnel(data);
-        
+
       if (response.code === 0) {
         toast.success(isEdit ? '更新成功' : '创建成功');
         setModalOpen(false);
@@ -321,6 +381,7 @@ export default function TunnelPage() {
       case 1: return '端口转发';
       case 2: return '隧道转发';
       case 3: return '端口复用';
+      case 4: return '多级隧道转发';
       default: return '未知类型';
     }
   };
@@ -534,7 +595,38 @@ export default function TunnelPage() {
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
                           </svg>
                         </div>
-                        
+
+                        {/* 多级隧道转发显示中转节点 */}
+                        {tunnel.type === 4 && tunnel.hopNodes && (() => {
+                          try {
+                            const hopNodes = JSON.parse(tunnel.hopNodes);
+                            return hopNodes.map((hop: any, index: number) => (
+                              <div key={index}>
+                                <div className="p-2 bg-primary-50 dark:bg-primary-900/20 rounded border border-primary-200 dark:border-primary-800">
+                                  <div className="flex items-center justify-between mb-1">
+                                    <span className="text-xs font-medium text-primary-600 dark:text-primary-400">
+                                      中转节点 {hop.hopOrder}
+                                    </span>
+                                  </div>
+                                  <code className="text-xs font-mono text-foreground block truncate">
+                                    {hop.nodeName}
+                                  </code>
+                                  <code className="text-xs font-mono text-default-500 block truncate">
+                                    {hop.nodeIp}:{hop.port} ({hop.protocol})
+                                  </code>
+                                </div>
+                                <div className="text-center py-0.5">
+                                  <svg className="w-3 h-3 text-default-400 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+                                  </svg>
+                                </div>
+                              </div>
+                            ));
+                          } catch (e) {
+                            return null;
+                          }
+                        })()}
+
                         <div className="p-2 bg-default-50 dark:bg-default-100/50 rounded border border-default-200 dark:border-default-300">
                           <div className="flex items-center justify-between mb-1">
                             <span className="text-xs font-medium text-default-600">
@@ -685,6 +777,7 @@ export default function TunnelPage() {
                       <SelectItem key="1">端口转发</SelectItem>
                       <SelectItem key="2">隧道转发</SelectItem>
                       <SelectItem key="3">端口复用</SelectItem>
+                      <SelectItem key="4">多级隧道转发</SelectItem>
                     </Select>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -824,8 +917,28 @@ export default function TunnelPage() {
                       />
                     )}
 
-                    {/* 隧道转发时显示出口配置 */}
-                    {form.type === 2 && (
+                    {/* 多级隧道转发时显示多级节点配置 */}
+                    {form.type === 4 && (
+                      <>
+                        <Divider />
+                        <div className="space-y-2">
+                          <h3 className="text-lg font-semibold">多级中转节点配置</h3>
+                          <MultiHopConfig
+                            nodes={nodes}
+                            value={form.hopNodes || []}
+                            onChange={(hopNodes) => setForm(prev => ({ ...prev, hopNodes }))}
+                            inNodeId={form.inNodeId}
+                            outNodeId={form.outNodeId}
+                          />
+                          {errors.hopNodes && (
+                            <p className="text-sm text-danger">{errors.hopNodes}</p>
+                          )}
+                        </div>
+                      </>
+                    )}
+
+                    {/* 隧道转发和多级隧道转发时显示出口配置 */}
+                    {(form.type === 2 || form.type === 4) && (
                       <>
                         <Divider />
                         <h3 className="text-lg font-semibold">出口配置</h3>

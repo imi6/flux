@@ -44,6 +44,7 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
     private static final int TUNNEL_TYPE_PORT_FORWARD = 1;
     private static final int TUNNEL_TYPE_TUNNEL_FORWARD = 2;
     private static final int TUNNEL_TYPE_PORT_REUSE = 3;
+    private static final int TUNNEL_TYPE_MULTI_HOP_TUNNEL = 4;
     private static final int FORWARD_STATUS_ACTIVE = 1;
     private static final int FORWARD_STATUS_PAUSED = 0;
     private static final int FORWARD_STATUS_ERROR = -1;
@@ -1027,18 +1028,41 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
             }
         }
 
+        // 多级隧道转发需要创建多级链和远程服务
+        if (tunnel.getType() == TUNNEL_TYPE_MULTI_HOP_TUNNEL) {
+            R multiHopChainResult = createMultiHopChainService(nodeInfo.getInNode(), serviceName, tunnel.getHopNodes());
+            if (multiHopChainResult.getCode() != 0) {
+                GostUtil.DeleteMultiHopChains(nodeInfo.getInNode().getId(), serviceName);
+                return multiHopChainResult;
+            }
+
+            R remoteResult = createRemoteService(nodeInfo.getOutNode(), serviceName, forward, tunnel.getProtocol(), forward.getInterfaceName());
+            if (remoteResult.getCode() != 0) {
+                GostUtil.DeleteMultiHopChains(nodeInfo.getInNode().getId(), serviceName);
+                GostUtil.DeleteRemoteService(nodeInfo.getOutNode().getId(), serviceName);
+                return remoteResult;
+            }
+        }
+
         String interfaceName = null;
         // 创建主服务
-        if (tunnel.getType() != TUNNEL_TYPE_TUNNEL_FORWARD) { // 不是隧道转发服务才会存在网络接口
+        if (tunnel.getType() != TUNNEL_TYPE_TUNNEL_FORWARD && tunnel.getType() != TUNNEL_TYPE_MULTI_HOP_TUNNEL) {
+            // 不是隧道转发和多级隧道转发服务才会存在网络接口
             interfaceName = forward.getInterfaceName();
         }
 
 
         R serviceResult = createMainService(nodeInfo.getInNode(), serviceName, forward, limiter, tunnel.getType(), tunnel, forward.getStrategy(), interfaceName);
         if (serviceResult.getCode() != 0) {
-            GostUtil.DeleteChains(nodeInfo.getInNode().getId(), serviceName);
+            // 清理已创建的资源
+            if (tunnel.getType() == TUNNEL_TYPE_TUNNEL_FORWARD) {
+                GostUtil.DeleteChains(nodeInfo.getInNode().getId(), serviceName);
+            }
             if (tunnel.getType() == TUNNEL_TYPE_PORT_REUSE) {
                 GostUtil.DeleteSSChain(nodeInfo.getInNode().getId(), serviceName);
+            }
+            if (tunnel.getType() == TUNNEL_TYPE_MULTI_HOP_TUNNEL) {
+                GostUtil.DeleteMultiHopChains(nodeInfo.getInNode().getId(), serviceName);
             }
             if (nodeInfo.getOutNode() != null) {
                 GostUtil.DeleteRemoteService(nodeInfo.getOutNode().getId(), serviceName);
@@ -1078,9 +1102,25 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
             }
         }
 
+        // 多级隧道转发需要更新多级链和远程服务
+        if (tunnel.getType() == TUNNEL_TYPE_MULTI_HOP_TUNNEL) {
+            R multiHopChainResult = updateMultiHopChainService(nodeInfo.getInNode(), serviceName, tunnel.getHopNodes());
+            if (multiHopChainResult.getCode() != 0) {
+                updateForwardStatusToError(forward);
+                return multiHopChainResult;
+            }
+
+            R remoteResult = updateRemoteService(nodeInfo.getOutNode(), serviceName, forward, tunnel.getProtocol(), forward.getInterfaceName());
+            if (remoteResult.getCode() != 0) {
+                updateForwardStatusToError(forward);
+                return remoteResult;
+            }
+        }
+
         String interfaceName = null;
         // 创建主服务
-        if (tunnel.getType() != TUNNEL_TYPE_TUNNEL_FORWARD) { // 不是隧道转发服务才会存在网络接口
+        if (tunnel.getType() != TUNNEL_TYPE_TUNNEL_FORWARD && tunnel.getType() != TUNNEL_TYPE_MULTI_HOP_TUNNEL) {
+            // 不是隧道转发和多级隧道转发服务才会存在网络接口
             interfaceName = forward.getInterfaceName();
         }
         // 更新主服务
@@ -1214,7 +1254,30 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
             }
         }
 
+        // 多级隧道转发需要删除多级链和远程服务
+        if (tunnel.getType() == TUNNEL_TYPE_MULTI_HOP_TUNNEL) {
+            GostDto multiHopChainResult = GostUtil.DeleteMultiHopChains(nodeInfo.getInNode().getId(), serviceName);
+            if (!isGostOperationSuccess(multiHopChainResult)) {
+                return R.err(multiHopChainResult.getMsg());
+            }
+
+            if (nodeInfo.getOutNode() != null) {
+                GostDto remoteResult = GostUtil.DeleteRemoteService(nodeInfo.getOutNode().getId(), serviceName);
+                if (!isGostOperationSuccess(remoteResult)) {
+                    return R.err(remoteResult.getMsg());
+                }
+            }
+        }
+
         return R.ok();
+    }
+
+    /**
+     * 创建多级链服务
+     */
+    private R createMultiHopChainService(Node inNode, String serviceName, String hopNodesJson) {
+        GostDto result = GostUtil.AddMultiHopChains(inNode.getId(), serviceName, hopNodesJson);
+        return isGostOperationSuccess(result) ? R.ok() : R.err(result.getMsg());
     }
 
     /**
@@ -1250,6 +1313,17 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
      */
     private R createMainService(Node inNode, String serviceName, Forward forward, Integer limiter, Integer tunnelType, Tunnel tunnel, String strategy, String interfaceName) {
         GostDto result = GostUtil.AddService(inNode.getId(), serviceName, forward.getInPort(), limiter, forward.getRemoteAddr(), tunnelType, tunnel, strategy, interfaceName);
+        return isGostOperationSuccess(result) ? R.ok() : R.err(result.getMsg());
+    }
+
+    /**
+     * 更新多级链服务
+     */
+    private R updateMultiHopChainService(Node inNode, String serviceName, String hopNodesJson) {
+        GostDto result = GostUtil.UpdateMultiHopChains(inNode.getId(), serviceName, hopNodesJson);
+        if (result.getMsg().contains(GOST_NOT_FOUND_MSG)) {
+            result = GostUtil.AddMultiHopChains(inNode.getId(), serviceName, hopNodesJson);
+        }
         return isGostOperationSuccess(result) ? R.ok() : R.err(result.getMsg());
     }
 

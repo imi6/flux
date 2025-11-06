@@ -50,6 +50,7 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
     private static final int TUNNEL_TYPE_PORT_FORWARD = 1;  // 端口转发
     private static final int TUNNEL_TYPE_TUNNEL_FORWARD = 2; // 隧道转发
     private static final int TUNNEL_TYPE_PORT_REUSE = 3;    // 端口复用
+    private static final int TUNNEL_TYPE_MULTI_HOP_TUNNEL = 4; // 多级隧道转发
 
     /** 隧道状态常量 */
     private static final int TUNNEL_STATUS_ACTIVE = 1;      // 启用状态
@@ -120,6 +121,14 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
             R tunnelForwardValidationResult = validateTunnelForwardCreate(tunnelDto);
             if (tunnelForwardValidationResult.getCode() != 0) {
                 return tunnelForwardValidationResult;
+            }
+        }
+
+        // 2.1 验证多级隧道转发类型的必要参数
+        if (tunnelDto.getType() == TUNNEL_TYPE_MULTI_HOP_TUNNEL) {
+            R multiHopValidationResult = validateMultiHopTunnelCreate(tunnelDto);
+            if (multiHopValidationResult.getCode() != 0) {
+                return multiHopValidationResult;
             }
         }
 
@@ -402,6 +411,9 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
         if (tunnelDto.getType() == TUNNEL_TYPE_PORT_FORWARD || tunnelDto.getType() == TUNNEL_TYPE_PORT_REUSE) {
             // 端口转发和端口复用：出口参数使用入口参数
             return setupPortForwardOutParameters(tunnel, tunnelDto, server_ip);
+        } else if (tunnelDto.getType() == TUNNEL_TYPE_MULTI_HOP_TUNNEL) {
+            // 多级隧道转发：需要验证出口参数
+            return setupMultiHopTunnelOutParameters(tunnel, tunnelDto);
         } else {
             // 隧道转发：需要验证出口参数
             return setupTunnelForwardOutParameters(tunnel, tunnelDto);
@@ -463,8 +475,48 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
     }
 
     /**
+     * 设置多级隧道转发的出口参数
+     *
+     * @param tunnel 隧道对象
+     * @param tunnelDto 隧道创建DTO
+     * @return 设置结果响应
+     */
+    private R setupMultiHopTunnelOutParameters(Tunnel tunnel, TunnelDto tunnelDto) {
+        // 验证出口节点不能为空
+        if (tunnelDto.getOutNodeId() == null) {
+            return R.err(ERROR_OUT_NODE_REQUIRED);
+        }
+
+        // 验证协议类型
+        String protocol = tunnelDto.getProtocol();
+        if (StrUtil.isBlank(protocol)) {
+            protocol = "tls"; // 默认使用tls
+        }
+
+        // 验证出口节点是否存在
+        Node outNode = nodeService.getById(tunnelDto.getOutNodeId());
+        if (outNode == null) {
+            return R.err(ERROR_OUT_NODE_NOT_FOUND);
+        }
+
+        // 验证出口节点是否在线
+        if (outNode.getStatus() != NODE_STATUS_ONLINE) {
+            return R.err(ERROR_OUT_NODE_OFFLINE);
+        }
+
+        // 设置出口参数
+        tunnel.setOutNodeId(tunnelDto.getOutNodeId());
+        tunnel.setOutIp(outNode.getServerIp());
+
+        // 设置多级节点配置
+        tunnel.setHopNodes(tunnelDto.getHopNodes());
+
+        return R.ok();
+    }
+
+    /**
      * 设置隧道默认属性
-     * 
+     *
      * @param tunnel 隧道对象
      */
     private void setDefaultTunnelProperties(Tunnel tunnel) {
@@ -837,6 +889,107 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
 
 
     // ========== 内部数据类 ==========
+
+    /**
+     * 验证多级隧道转发创建参数
+     *
+     * @param tunnelDto 隧道创建DTO
+     * @return 验证结果
+     */
+    private R validateMultiHopTunnelCreate(TunnelDto tunnelDto) {
+        // 1. 验证hopNodes配置不能为空
+        if (StrUtil.isBlank(tunnelDto.getHopNodes())) {
+            return R.err("多级隧道转发必须配置中转节点");
+        }
+
+        // 2. 解析并验证hopNodes JSON格式
+        try {
+            com.alibaba.fastjson.JSONArray hopNodesArray = com.alibaba.fastjson.JSONArray.parseArray(tunnelDto.getHopNodes());
+
+            if (hopNodesArray == null || hopNodesArray.isEmpty()) {
+                return R.err("多级隧道转发至少需要配置一个中转节点");
+            }
+
+            // 3. 验证每个节点的配置
+            Set<Long> nodeIds = new HashSet<>();
+            Set<Integer> hopOrders = new HashSet<>();
+
+            for (int i = 0; i < hopNodesArray.size(); i++) {
+                JSONObject hopNode = hopNodesArray.getJSONObject(i);
+
+                // 验证必填字段
+                if (hopNode.getLong("nodeId") == null) {
+                    return R.err("第" + (i + 1) + "个中转节点的节点ID不能为空");
+                }
+                if (StrUtil.isBlank(hopNode.getString("nodeIp"))) {
+                    return R.err("第" + (i + 1) + "个中转节点的IP地址不能为空");
+                }
+                if (hopNode.getInteger("port") == null) {
+                    return R.err("第" + (i + 1) + "个中转节点的端口不能为空");
+                }
+                if (hopNode.getInteger("hopOrder") == null) {
+                    return R.err("第" + (i + 1) + "个中转节点的顺序不能为空");
+                }
+
+                Long nodeId = hopNode.getLong("nodeId");
+                Integer hopOrder = hopNode.getInteger("hopOrder");
+                Integer port = hopNode.getInteger("port");
+
+                // 验证节点是否存在
+                Node node = nodeService.getById(nodeId);
+                if (node == null) {
+                    return R.err("第" + (i + 1) + "个中转节点不存在");
+                }
+
+                // 验证节点是否在线
+                if (node.getStatus() != NODE_STATUS_ONLINE) {
+                    return R.err("第" + (i + 1) + "个中转节点(" + node.getName() + ")当前离线");
+                }
+
+                // 验证端口范围
+                if (port < 1 || port > 65535) {
+                    return R.err("第" + (i + 1) + "个中转节点的端口号必须在1-65535之间");
+                }
+
+                // 验证节点不重复
+                if (nodeIds.contains(nodeId)) {
+                    return R.err("中转节点不能重复使用同一个节点");
+                }
+                nodeIds.add(nodeId);
+
+                // 验证hopOrder不重复
+                if (hopOrders.contains(hopOrder)) {
+                    return R.err("中转节点的顺序不能重复");
+                }
+                hopOrders.add(hopOrder);
+            }
+
+            // 4. 验证入口节点不能在中转节点中
+            if (nodeIds.contains(tunnelDto.getInNodeId())) {
+                return R.err("入口节点不能同时作为中转节点");
+            }
+
+            // 5. 验证出口节点
+            if (tunnelDto.getOutNodeId() == null) {
+                return R.err("多级隧道转发必须指定出口节点");
+            }
+
+            // 验证出口节点不能在中转节点中
+            if (nodeIds.contains(tunnelDto.getOutNodeId())) {
+                return R.err("出口节点不能同时作为中转节点");
+            }
+
+            // 验证出口节点不能与入口节点相同
+            if (tunnelDto.getOutNodeId().equals(tunnelDto.getInNodeId())) {
+                return R.err("出口节点不能与入口节点相同");
+            }
+
+            return R.ok();
+
+        } catch (Exception e) {
+            return R.err("多级节点配置格式错误: " + e.getMessage());
+        }
+    }
 
     /**
      * 用户信息封装类

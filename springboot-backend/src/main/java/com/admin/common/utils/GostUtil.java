@@ -456,6 +456,205 @@ public class GostUtil {
         return WebSocketServer.send_msg(node_id, data, "DeleteChains");
     }
 
+    /**
+     * 添加多级隧道转发链
+     * 支持多个节点的级联转发: A -> B -> C -> ... -> 目标
+     *
+     * @param node_id 入口节点ID
+     * @param name 服务名称
+     * @param hopNodesJson 多级节点配置JSON字符串
+     * @return 操作结果
+     */
+    public static GostDto AddMultiHopChains(Long node_id, String name, String hopNodesJson) {
+        try {
+            JSONArray hopNodesArray = JSONArray.parseArray(hopNodesJson);
+            if (hopNodesArray == null || hopNodesArray.isEmpty()) {
+                GostDto error = new GostDto();
+                error.setCode(-1);
+                error.setMsg("多级节点配置不能为空");
+                return error;
+            }
+
+            JSONArray hops = new JSONArray();
+
+            // 按hopOrder排序，确保节点顺序正确
+            hopNodesArray.sort((o1, o2) -> {
+                JSONObject j1 = (JSONObject) o1;
+                JSONObject j2 = (JSONObject) o2;
+                return j1.getInteger("hopOrder") - j2.getInteger("hopOrder");
+            });
+
+            // 为每个节点创建一个hop
+            for (int i = 0; i < hopNodesArray.size(); i++) {
+                JSONObject hopNode = hopNodesArray.getJSONObject(i);
+
+                String nodeIp = hopNode.getString("nodeIp");
+                Integer port = hopNode.getInteger("port");
+                String protocol = hopNode.getString("protocol");
+                String interfaceName = hopNode.getString("interfaceName");
+
+                if (protocol == null || protocol.isEmpty()) {
+                    protocol = "tls";
+                }
+
+                // 构建远程地址
+                String remoteAddr = nodeIp + ":" + port;
+                if (nodeIp.contains(":")) {
+                    remoteAddr = "[" + nodeIp + "]:" + port;
+                }
+
+                // 创建dialer
+                JSONObject dialer = new JSONObject();
+                dialer.put("type", protocol);
+
+                if ("quic".equals(protocol)) {
+                    JSONObject metadata = new JSONObject();
+                    metadata.put("keepAlive", true);
+                    metadata.put("ttl", "10s");
+                    dialer.put("metadata", metadata);
+                }
+
+                // 创建connector
+                JSONObject connector = new JSONObject();
+                connector.put("type", "relay");
+
+                // 创建node
+                JSONObject node = new JSONObject();
+                node.put("name", "hop-node-" + (i + 1));
+                node.put("addr", remoteAddr);
+                node.put("connector", connector);
+                node.put("dialer", dialer);
+
+                if (StringUtils.isNotBlank(interfaceName)) {
+                    node.put("interface", interfaceName);
+                }
+
+                // 创建hop
+                JSONArray nodes = new JSONArray();
+                nodes.add(node);
+
+                JSONObject hop = new JSONObject();
+                hop.put("name", "hop-" + name + "-" + (i + 1));
+                hop.put("nodes", nodes);
+
+                hops.add(hop);
+            }
+
+            // 构建chain数据
+            JSONObject data = new JSONObject();
+            data.put("name", name + "_multi_hop_chains");
+            data.put("hops", hops);
+
+            return WebSocketServer.send_msg(node_id, data, "AddChains");
+
+        } catch (Exception e) {
+            GostDto error = new GostDto();
+            error.setCode(-1);
+            error.setMsg("解析多级节点配置失败: " + e.getMessage());
+            return error;
+        }
+    }
+
+    /**
+     * 更新多级隧道转发链
+     */
+    public static GostDto UpdateMultiHopChains(Long node_id, String name, String hopNodesJson) {
+        try {
+            JSONArray hopNodesArray = JSONArray.parseArray(hopNodesJson);
+            if (hopNodesArray == null || hopNodesArray.isEmpty()) {
+                GostDto error = new GostDto();
+                error.setCode(-1);
+                error.setMsg("多级节点配置不能为空");
+                return error;
+            }
+
+            JSONArray hops = new JSONArray();
+
+            // 按hopOrder排序
+            hopNodesArray.sort((o1, o2) -> {
+                JSONObject j1 = (JSONObject) o1;
+                JSONObject j2 = (JSONObject) o2;
+                return j1.getInteger("hopOrder") - j2.getInteger("hopOrder");
+            });
+
+            // 为每个节点创建一个hop
+            for (int i = 0; i < hopNodesArray.size(); i++) {
+                JSONObject hopNode = hopNodesArray.getJSONObject(i);
+
+                String nodeIp = hopNode.getString("nodeIp");
+                Integer port = hopNode.getInteger("port");
+                String protocol = hopNode.getString("protocol");
+                String interfaceName = hopNode.getString("interfaceName");
+
+                if (protocol == null || protocol.isEmpty()) {
+                    protocol = "tls";
+                }
+
+                String remoteAddr = nodeIp + ":" + port;
+                if (nodeIp.contains(":")) {
+                    remoteAddr = "[" + nodeIp + "]:" + port;
+                }
+
+                JSONObject dialer = new JSONObject();
+                dialer.put("type", protocol);
+
+                if ("quic".equals(protocol)) {
+                    JSONObject metadata = new JSONObject();
+                    metadata.put("keepAlive", true);
+                    metadata.put("ttl", "10s");
+                    dialer.put("metadata", metadata);
+                }
+
+                JSONObject connector = new JSONObject();
+                connector.put("type", "relay");
+
+                JSONObject node = new JSONObject();
+                node.put("name", "hop-node-" + (i + 1));
+                node.put("addr", remoteAddr);
+                node.put("connector", connector);
+                node.put("dialer", dialer);
+
+                if (StringUtils.isNotBlank(interfaceName)) {
+                    node.put("interface", interfaceName);
+                }
+
+                JSONArray nodes = new JSONArray();
+                nodes.add(node);
+
+                JSONObject hop = new JSONObject();
+                hop.put("name", "hop-" + name + "-" + (i + 1));
+                hop.put("nodes", nodes);
+
+                hops.add(hop);
+            }
+
+            JSONObject data = new JSONObject();
+            data.put("name", name + "_multi_hop_chains");
+            data.put("hops", hops);
+
+            JSONObject req = new JSONObject();
+            req.put("chain", name + "_multi_hop_chains");
+            req.put("data", data);
+
+            return WebSocketServer.send_msg(node_id, req, "UpdateChains");
+
+        } catch (Exception e) {
+            GostDto error = new GostDto();
+            error.setCode(-1);
+            error.setMsg("更新多级节点配置失败: " + e.getMessage());
+            return error;
+        }
+    }
+
+    /**
+     * 删除多级隧道转发链
+     */
+    public static GostDto DeleteMultiHopChains(Long node_id, String name) {
+        JSONObject data = new JSONObject();
+        data.put("chain", name + "_multi_hop_chains");
+        return WebSocketServer.send_msg(node_id, data, "DeleteChains");
+    }
+
     private static JSONObject createLimiterData(Long name, String speed) {
         JSONObject data = new JSONObject();
         data.put("name", name.toString());
@@ -522,6 +721,11 @@ public class GostUtil {
             if (isTunnelForwarding(fow_type)) {
                 handler.put("chain", name + "_chains");
             }
+
+            // 多级隧道转发需要添加多级链配置
+            if (isMultiHopTunnelForwarding(fow_type)) {
+                handler.put("chain", name + "_multi_hop_chains");
+            }
         }
 
         return handler;
@@ -576,6 +780,10 @@ public class GostUtil {
 
     private static boolean isPortReuse(Integer fow_type) {
         return fow_type != null && fow_type == 3;
+    }
+
+    private static boolean isMultiHopTunnelForwarding(Integer fow_type) {
+        return fow_type != null && fow_type == 4;
     }
 
 }
