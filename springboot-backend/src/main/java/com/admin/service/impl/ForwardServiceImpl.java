@@ -460,7 +460,16 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
 
 
         List<DiagnosisResult> results = new ArrayList<>();
-        String[] remoteAddresses = forward.getRemoteAddr().split(",");
+
+        // 获取目标地址，如果为空则使用默认测试地址
+        String[] remoteAddresses;
+        if (forward.getRemoteAddr() != null && !forward.getRemoteAddr().trim().isEmpty()) {
+            remoteAddresses = forward.getRemoteAddr().split(",");
+        } else {
+            // 对于多级隧道转发等没有设置目标地址的情况，使用默认测试地址
+            remoteAddresses = new String[]{"www.google.com:443"};
+        }
+
         // 6. 根据隧道类型执行不同的诊断策略
         if (tunnel.getType() == TUNNEL_TYPE_PORT_FORWARD || tunnel.getType() == TUNNEL_TYPE_PORT_REUSE) {
             // 端口转发和端口复用：入口节点直接TCP ping目标地址
@@ -503,7 +512,7 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
                 results.add(outToTargetResult);
             }
         } else if (tunnel.getType() == TUNNEL_TYPE_MULTI_HOP_TUNNEL) {
-            // 多级隧道转发：入口 -> 中转节点1 -> 中转节点2 -> ... -> 出口 -> 目标
+            // 多级隧道转发：入口 -> 中转节点 -> 出口 -> 目标
             Node outNode = nodeService.getNodeById(tunnel.getOutNodeId());
             if (outNode == null) {
                 return R.err("出口节点不存在");
@@ -520,56 +529,38 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
                         return j1.getInteger("hopOrder") - j2.getInteger("hopOrder");
                     });
 
-                    // 入口 -> 第一个中转节点
-                    JSONObject firstHop = hopNodesArray.getJSONObject(0);
-                    String firstHopIp = firstHop.getString("nodeIp");
-                    Integer firstHopPort = firstHop.getInteger("port");
-                    DiagnosisResult inToFirstHopResult = performTcpPingDiagnosis(
-                        inNode,
-                        firstHopIp,
-                        firstHopPort,
-                        "入口->中转节点1"
-                    );
-                    results.add(inToFirstHopResult);
+                    // 1. 入口 -> 中转节点
+                    for (int i = 0; i < hopNodesArray.size(); i++) {
+                        JSONObject hop = hopNodesArray.getJSONObject(i);
+                        String hopIp = hop.getString("nodeIp");
+                        Integer hopPort = hop.getInteger("port");
 
-                    // 中转节点之间的连接测试
-                    for (int i = 0; i < hopNodesArray.size() - 1; i++) {
-                        JSONObject currentHop = hopNodesArray.getJSONObject(i);
-                        JSONObject nextHop = hopNodesArray.getJSONObject(i + 1);
-
-                        Long currentNodeId = currentHop.getLong("nodeId");
-                        String nextHopIp = nextHop.getString("nodeIp");
-                        Integer nextHopPort = nextHop.getInteger("port");
-
-                        Node currentNode = nodeService.getNodeById(currentNodeId);
-                        if (currentNode != null) {
-                            DiagnosisResult hopToHopResult = performTcpPingDiagnosis(
-                                currentNode,
-                                nextHopIp,
-                                nextHopPort,
-                                "中转节点" + (i + 1) + "->中转节点" + (i + 2)
-                            );
-                            results.add(hopToHopResult);
-                        }
+                        DiagnosisResult inToHopResult = performTcpPingDiagnosis(
+                            inNode,
+                            hopIp,
+                            hopPort,
+                            "入口->中转节点" + (i + 1)
+                        );
+                        results.add(inToHopResult);
                     }
 
-                    // 最后一个中转节点 -> 出口节点
+                    // 2. 中转节点 -> 出口
                     JSONObject lastHop = hopNodesArray.getJSONObject(hopNodesArray.size() - 1);
                     Long lastHopNodeId = lastHop.getLong("nodeId");
                     Node lastHopNode = nodeService.getNodeById(lastHopNodeId);
 
                     if (lastHopNode != null && forward.getOutPort() != null) {
-                        DiagnosisResult lastHopToOutResult = performTcpPingDiagnosis(
+                        DiagnosisResult hopToOutResult = performTcpPingDiagnosis(
                             lastHopNode,
                             outNode.getServerIp(),
                             forward.getOutPort(),
-                            "中转节点" + hopNodesArray.size() + "->出口"
+                            "中转节点->出口"
                         );
-                        results.add(lastHopToOutResult);
+                        results.add(hopToOutResult);
                     }
                 }
 
-                // 出口 -> 目标
+                // 3. 出口 -> 目标
                 for (String remoteAddress : remoteAddresses) {
                     String targetIp = extractIpFromAddress(remoteAddress);
                     int targetPort = extractPortFromAddress(remoteAddress);
