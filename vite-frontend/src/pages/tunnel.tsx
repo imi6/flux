@@ -239,7 +239,7 @@ export default function TunnelPage() {
         // 验证每个中转节点的配置
         for (let i = 0; i < form.hopNodes.length; i++) {
           const hop = form.hopNodes[i];
-          if (!hop.nodeIp || !hop.port) {
+          if (!hop.nodeId || !hop.protocol) {
             newErrors.hopNodes = `第${i + 1}个中转节点配置不完整`;
             break;
           }
