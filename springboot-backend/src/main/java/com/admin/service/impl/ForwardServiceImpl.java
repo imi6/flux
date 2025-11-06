@@ -452,6 +452,10 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
             return R.err("隧道不存在");
         }
 
+        // 记录隧道信息用于调试
+        log.info("诊断转发 - 转发ID: {}, 隧道ID: {}, 隧道类型: {}, 入口节点ID: {}, 出口节点ID: {}",
+            id, tunnel.getId(), tunnel.getType(), tunnel.getInNodeId(), tunnel.getOutNodeId());
+
         // 4. 获取入口节点信息
         Node inNode = nodeService.getNodeById(tunnel.getInNodeId());
         if (inNode == null) {
@@ -513,8 +517,16 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
             }
         } else if (tunnel.getType() == TUNNEL_TYPE_MULTI_HOP_TUNNEL) {
             // 多级隧道转发：入口 -> 中转节点 -> 出口 -> 目标
+
+            // 检查出口节点ID是否为空
+            if (tunnel.getOutNodeId() == null) {
+                log.error("多级隧道转发诊断失败：隧道ID={}, 出口节点ID为空", tunnel.getId());
+                return R.err("多级隧道转发配置错误：未设置出口节点");
+            }
+
             Node outNode = nodeService.getNodeById(tunnel.getOutNodeId());
             if (outNode == null) {
+                log.error("多级隧道转发诊断失败：隧道ID={}, 出口节点ID={} 不存在", tunnel.getId(), tunnel.getOutNodeId());
                 return R.err("出口节点不存在");
             }
 
