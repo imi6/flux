@@ -22,6 +22,7 @@ import com.alibaba.fastjson.JSONObject;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.Data;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
@@ -41,6 +42,7 @@ import java.util.stream.Collectors;
  * @author QAQ
  * @since 2025-06-03
  */
+@Slf4j
 @Service
 public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> implements TunnelService {
 
@@ -744,7 +746,7 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
                         Integer hopPort = hop.getInteger("port");
 
                         if (hopPort == null || hopPort == 0) {
-                            log.warn("中转节点{}的端口未分配，跳过诊断", i + 1);
+                            log.warn("中转节点" + (i + 1) + "的端口未分配，跳过诊断");
                             continue;
                         }
 
@@ -778,7 +780,7 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
                 DiagnosisResult outToExternalResult = performTcpPingDiagnosisWithConnectionCheck(outNode, "www.google.com", 443, "出口->外网");
                 results.add(outToExternalResult);
             } catch (Exception e) {
-                log.error("多级隧道诊断失败: {}", e.getMessage(), e);
+                log.error("多级隧道诊断失败: " + e.getMessage());
                 return R.err("解析多级节点配置失败: " + e.getMessage());
             }
         } else {
