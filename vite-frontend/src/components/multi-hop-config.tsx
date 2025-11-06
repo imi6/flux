@@ -24,7 +24,6 @@ interface MultiHopConfigProps {
 }
 
 export default function MultiHopConfig({ nodes, value, onChange, inNodeId, outNodeId }: MultiHopConfigProps) {
-  const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [tempHopNode, setTempHopNode] = useState<Partial<HopNode>>({
     protocol: 'tls',
     port: 8080
@@ -171,7 +170,7 @@ export default function MultiHopConfig({ nodes, value, onChange, inNodeId, outNo
             variant="bordered"
           >
             {getAvailableNodes().map((node) => (
-              <SelectItem key={node.id.toString()} value={node.id.toString()}>
+              <SelectItem key={node.id.toString()}>
                 {node.name}
               </SelectItem>
             ))}
@@ -203,10 +202,10 @@ export default function MultiHopConfig({ nodes, value, onChange, inNodeId, outNo
             onChange={(e) => setTempHopNode(prev => ({ ...prev, protocol: e.target.value }))}
             variant="bordered"
           >
-            <SelectItem key="tls" value="tls">TLS</SelectItem>
-            <SelectItem key="quic" value="quic">QUIC</SelectItem>
-            <SelectItem key="ws" value="ws">WebSocket</SelectItem>
-            <SelectItem key="wss" value="wss">WebSocket Secure</SelectItem>
+            <SelectItem key="tls">TLS</SelectItem>
+            <SelectItem key="quic">QUIC</SelectItem>
+            <SelectItem key="ws">WebSocket</SelectItem>
+            <SelectItem key="wss">WebSocket Secure</SelectItem>
           </Select>
 
           <Input
