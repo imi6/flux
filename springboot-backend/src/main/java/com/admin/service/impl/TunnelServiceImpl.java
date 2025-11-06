@@ -699,7 +699,7 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
         }
 
         Node outNode = null;
-        if (tunnel.getType() == TUNNEL_TYPE_TUNNEL_FORWARD) {
+        if (tunnel.getType() == TUNNEL_TYPE_TUNNEL_FORWARD || tunnel.getType() == TUNNEL_TYPE_MULTI_HOP_TUNNEL) {
             outNode = nodeService.getById(tunnel.getOutNodeId());
             if (outNode == null) {
                 return R.err(ERROR_OUT_NODE_NOT_FOUND);
@@ -713,6 +713,49 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
             // 端口转发和端口复用：只给入口节点发送诊断指令，TCP ping谷歌443端口
             DiagnosisResult inResult = performTcpPingDiagnosisWithConnectionCheck(inNode, "www.google.com", 443, "入口->外网");
             results.add(inResult);
+        } else if (tunnel.getType() == TUNNEL_TYPE_MULTI_HOP_TUNNEL) {
+            // 多级隧道转发：入口 -> 中转节点 -> 出口 -> 外网
+            try {
+                com.alibaba.fastjson.JSONArray hopNodesArray = com.alibaba.fastjson.JSONArray.parseArray(tunnel.getHopNodes());
+                if (hopNodesArray != null && !hopNodesArray.isEmpty()) {
+                    // 1. 入口 -> 中转节点
+                    for (int i = 0; i < hopNodesArray.size(); i++) {
+                        JSONObject hop = hopNodesArray.getJSONObject(i);
+                        String hopIp = hop.getString("nodeIp");
+                        Integer hopPort = hop.getInteger("port");
+
+                        DiagnosisResult inToHopResult = performTcpPingDiagnosisWithConnectionCheck(
+                            inNode,
+                            hopIp,
+                            hopPort,
+                            "入口->中转节点" + (i + 1)
+                        );
+                        results.add(inToHopResult);
+                    }
+
+                    // 2. 中转节点 -> 出口
+                    JSONObject lastHop = hopNodesArray.getJSONObject(hopNodesArray.size() - 1);
+                    Long lastHopNodeId = lastHop.getLong("nodeId");
+                    Node lastHopNode = nodeService.getById(lastHopNodeId);
+
+                    if (lastHopNode != null) {
+                        int outNodePort = getOutNodeTcpPort(tunnel.getId());
+                        DiagnosisResult hopToOutResult = performTcpPingDiagnosisWithConnectionCheck(
+                            lastHopNode,
+                            outNode.getServerIp(),
+                            outNodePort,
+                            "中转节点->出口"
+                        );
+                        results.add(hopToOutResult);
+                    }
+                }
+
+                // 3. 出口 -> 外网
+                DiagnosisResult outToExternalResult = performTcpPingDiagnosisWithConnectionCheck(outNode, "www.google.com", 443, "出口->外网");
+                results.add(outToExternalResult);
+            } catch (Exception e) {
+                return R.err("解析多级节点配置失败: " + e.getMessage());
+            }
         } else {
             // 隧道转发：入口TCP ping出口，出口TCP ping谷歌443端口
             int outNodePort = getOutNodeTcpPort(tunnel.getId());
@@ -749,6 +792,8 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
                 return "隧道转发";
             case TUNNEL_TYPE_PORT_REUSE:
                 return "端口复用";
+            case TUNNEL_TYPE_MULTI_HOP_TUNNEL:
+                return "多级隧道转发";
             default:
                 return "未知类型";
         }
