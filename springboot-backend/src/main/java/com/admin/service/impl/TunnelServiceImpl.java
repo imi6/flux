@@ -921,12 +921,6 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
                 if (hopNode.getLong("nodeId") == null) {
                     return R.err("第" + (i + 1) + "个中转节点的节点ID不能为空");
                 }
-                if (StrUtil.isBlank(hopNode.getString("nodeIp"))) {
-                    return R.err("第" + (i + 1) + "个中转节点的IP地址不能为空");
-                }
-                if (hopNode.getInteger("port") == null) {
-                    return R.err("第" + (i + 1) + "个中转节点的端口不能为空");
-                }
                 if (hopNode.getInteger("hopOrder") == null) {
                     return R.err("第" + (i + 1) + "个中转节点的顺序不能为空");
                 }
@@ -946,8 +940,8 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
                     return R.err("第" + (i + 1) + "个中转节点(" + node.getName() + ")当前离线");
                 }
 
-                // 验证端口范围
-                if (port < 1 || port > 65535) {
+                // 验证端口范围（允许0表示自动分配，允许null表示自动分配）
+                if (port != null && port != 0 && (port < 1 || port > 65535)) {
                     return R.err("第" + (i + 1) + "个中转节点的端口号必须在1-65535之间");
                 }
 
