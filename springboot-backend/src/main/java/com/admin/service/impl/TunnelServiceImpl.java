@@ -725,19 +725,25 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
 
                 String hopNodesJson = tunnel.getHopNodes();
 
+                log.info("原始hopNodes配置: " + hopNodesJson);
+
                 // 如果有活跃的Forward，尝试从中获取处理后的hopNodes配置
                 if (!forwards.isEmpty()) {
                     Forward forward = forwards.get(0);
                     // 注意：Forward表中没有存储hopNodes，所以我们需要动态处理
                     // 这里我们使用forwardService的processHopNodesConfig方法
                     hopNodesJson = forwardService.processHopNodesConfigForDiagnosis(tunnel.getHopNodes(), null);
+                    log.info("处理后hopNodes配置: " + hopNodesJson);
                 }
 
                 if (hopNodesJson == null) {
+                    log.error("processHopNodesConfigForDiagnosis返回null");
                     return R.err("无法处理多级节点配置，请检查节点端口分配");
                 }
 
                 com.alibaba.fastjson.JSONArray hopNodesArray = com.alibaba.fastjson.JSONArray.parseArray(hopNodesJson);
+                log.info("解析后的hopNodesArray大小: " + (hopNodesArray != null ? hopNodesArray.size() : "null"));
+
                 if (hopNodesArray != null && !hopNodesArray.isEmpty()) {
                     // 1. 入口 -> 中转节点
                     for (int i = 0; i < hopNodesArray.size(); i++) {
@@ -745,11 +751,14 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
                         String hopIp = hop.getString("nodeIp");
                         Integer hopPort = hop.getInteger("port");
 
+                        log.info("中转节点" + (i + 1) + " - IP: " + hopIp + ", Port: " + hopPort);
+
                         if (hopPort == null || hopPort == 0) {
                             log.warn("中转节点" + (i + 1) + "的端口未分配，跳过诊断");
                             continue;
                         }
 
+                        log.info("开始诊断: 入口->中转节点" + (i + 1));
                         DiagnosisResult inToHopResult = performTcpPingDiagnosisWithConnectionCheck(
                             inNode,
                             hopIp,
@@ -757,6 +766,7 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
                             "入口->中转节点" + (i + 1)
                         );
                         results.add(inToHopResult);
+                        log.info("诊断结果已添加: " + inToHopResult);
                     }
 
                     // 2. 中转节点 -> 出口
