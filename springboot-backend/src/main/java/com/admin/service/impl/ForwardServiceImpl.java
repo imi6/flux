@@ -502,6 +502,86 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
                 DiagnosisResult outToTargetResult = performTcpPingDiagnosis(outNode, targetIp, targetPort, "出口->目标");
                 results.add(outToTargetResult);
             }
+        } else if (tunnel.getType() == TUNNEL_TYPE_MULTI_HOP_TUNNEL) {
+            // 多级隧道转发：入口 -> 中转节点1 -> 中转节点2 -> ... -> 出口 -> 目标
+            Node outNode = nodeService.getNodeById(tunnel.getOutNodeId());
+            if (outNode == null) {
+                return R.err("出口节点不存在");
+            }
+
+            // 解析中转节点配置
+            try {
+                com.alibaba.fastjson.JSONArray hopNodesArray = com.alibaba.fastjson.JSONArray.parseArray(tunnel.getHopNodes());
+                if (hopNodesArray != null && !hopNodesArray.isEmpty()) {
+                    // 按hopOrder排序
+                    hopNodesArray.sort((o1, o2) -> {
+                        JSONObject j1 = (JSONObject) o1;
+                        JSONObject j2 = (JSONObject) o2;
+                        return j1.getInteger("hopOrder") - j2.getInteger("hopOrder");
+                    });
+
+                    // 入口 -> 第一个中转节点
+                    JSONObject firstHop = hopNodesArray.getJSONObject(0);
+                    String firstHopIp = firstHop.getString("nodeIp");
+                    Integer firstHopPort = firstHop.getInteger("port");
+                    DiagnosisResult inToFirstHopResult = performTcpPingDiagnosis(
+                        inNode,
+                        firstHopIp,
+                        firstHopPort,
+                        "入口->中转节点1"
+                    );
+                    results.add(inToFirstHopResult);
+
+                    // 中转节点之间的连接测试
+                    for (int i = 0; i < hopNodesArray.size() - 1; i++) {
+                        JSONObject currentHop = hopNodesArray.getJSONObject(i);
+                        JSONObject nextHop = hopNodesArray.getJSONObject(i + 1);
+
+                        Long currentNodeId = currentHop.getLong("nodeId");
+                        String nextHopIp = nextHop.getString("nodeIp");
+                        Integer nextHopPort = nextHop.getInteger("port");
+
+                        Node currentNode = nodeService.getNodeById(currentNodeId);
+                        if (currentNode != null) {
+                            DiagnosisResult hopToHopResult = performTcpPingDiagnosis(
+                                currentNode,
+                                nextHopIp,
+                                nextHopPort,
+                                "中转节点" + (i + 1) + "->中转节点" + (i + 2)
+                            );
+                            results.add(hopToHopResult);
+                        }
+                    }
+
+                    // 最后一个中转节点 -> 出口节点
+                    JSONObject lastHop = hopNodesArray.getJSONObject(hopNodesArray.size() - 1);
+                    Long lastHopNodeId = lastHop.getLong("nodeId");
+                    Node lastHopNode = nodeService.getNodeById(lastHopNodeId);
+
+                    if (lastHopNode != null && forward.getOutPort() != null) {
+                        DiagnosisResult lastHopToOutResult = performTcpPingDiagnosis(
+                            lastHopNode,
+                            outNode.getServerIp(),
+                            forward.getOutPort(),
+                            "中转节点" + hopNodesArray.size() + "->出口"
+                        );
+                        results.add(lastHopToOutResult);
+                    }
+                }
+
+                // 出口 -> 目标
+                for (String remoteAddress : remoteAddresses) {
+                    String targetIp = extractIpFromAddress(remoteAddress);
+                    int targetPort = extractPortFromAddress(remoteAddress);
+                    if (targetIp == null || targetPort == -1) {
+                        return R.err("无法解析目标地址: " + remoteAddress);
+                    }
+                    DiagnosisResult outToTargetResult = performTcpPingDiagnosis(outNode, targetIp, targetPort, "出口->目标");
+                    results.add(outToTargetResult);
+                }
+            } catch (Exception e) {
+                return R.err("解析多级节点配置失败: " + e.getMessage());
+            }
         }
 
         // 7. 构建诊断报告
@@ -526,6 +606,8 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
                 return "隧道转发";
             case TUNNEL_TYPE_PORT_REUSE:
                 return "端口复用";
+            case TUNNEL_TYPE_MULTI_HOP_TUNNEL:
+                return "多级隧道转发";
             default:
                 return "未知类型";
         }

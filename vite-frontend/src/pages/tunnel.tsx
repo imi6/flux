@@ -479,6 +479,8 @@ export default function TunnelPage() {
         return { text: '隧道转发', color: 'secondary' };
       case 3:
         return { text: '端口复用', color: 'success' };
+      case 4:
+        return { text: '多级隧道转发', color: 'warning' };
       default:
         return { text: '未知', color: 'default' };
     }
