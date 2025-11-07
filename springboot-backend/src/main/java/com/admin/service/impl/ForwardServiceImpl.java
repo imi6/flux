@@ -875,7 +875,8 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
         }
 
         Node outNode = null;
-        if (tunnel.getType() == TUNNEL_TYPE_TUNNEL_FORWARD) {
+        // 隧道转发和多级隧道转发都需要出口节点
+        if (tunnel.getType() == TUNNEL_TYPE_TUNNEL_FORWARD || tunnel.getType() == TUNNEL_TYPE_MULTI_HOP_TUNNEL) {
             outNode = nodeService.getNodeById(tunnel.getOutNodeId());
             if (outNode == null) {
                 return NodeInfo.error("出口节点不存在");
@@ -1115,7 +1116,7 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
             }
         }
 
-        // 多级隧道转发需要创建多级链和远程服务
+        // 多级隧道转发需要创建多级链、中转节点relay服务和出口远程服务
         if (tunnel.getType() == TUNNEL_TYPE_MULTI_HOP_TUNNEL) {
             R multiHopChainResult = createMultiHopChainService(nodeInfo.getInNode(), serviceName, tunnel.getHopNodes());
             if (multiHopChainResult.getCode() != 0) {
@@ -1123,9 +1124,27 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
                 return multiHopChainResult;
             }
 
+            // 更新tunnel表，保存处理后的hopNodes配置（包含分配的端口）
+            String processedHopNodesJson = (String) multiHopChainResult.getData();
+            if (processedHopNodesJson != null && !processedHopNodesJson.equals(tunnel.getHopNodes())) {
+                tunnel.setHopNodes(processedHopNodesJson);
+                tunnelService.updateById(tunnel);
+                log.info("已更新隧道{}的hopNodes配置，包含分配的端口", tunnel.getId());
+            }
+
+            // 为每个中转节点创建relay服务
+            R hopRelayResult = createHopNodeRelayServices(serviceName, processedHopNodesJson, tunnel.getProtocol());
+            if (hopRelayResult.getCode() != 0) {
+                GostUtil.DeleteMultiHopChains(nodeInfo.getInNode().getId(), serviceName);
+                deleteHopNodeRelayServices(serviceName, processedHopNodesJson);
+                return hopRelayResult;
+            }
+
+            // 在出口节点创建remote服务
             R remoteResult = createRemoteService(nodeInfo.getOutNode(), serviceName, forward, tunnel.getProtocol(), forward.getInterfaceName());
             if (remoteResult.getCode() != 0) {
                 GostUtil.DeleteMultiHopChains(nodeInfo.getInNode().getId(), serviceName);
+                deleteHopNodeRelayServices(serviceName, processedHopNodesJson);
                 GostUtil.DeleteRemoteService(nodeInfo.getOutNode().getId(), serviceName);
                 return remoteResult;
             }
@@ -1150,6 +1169,9 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
             }
             if (tunnel.getType() == TUNNEL_TYPE_MULTI_HOP_TUNNEL) {
                 GostUtil.DeleteMultiHopChains(nodeInfo.getInNode().getId(), serviceName);
+                // 删除中转节点的relay服务
+                String processedHopNodesJson = (String) ((tunnel.getHopNodes() != null) ? tunnel.getHopNodes() : "[]");
+                deleteHopNodeRelayServices(serviceName, processedHopNodesJson);
             }
             if (nodeInfo.getOutNode() != null) {
                 GostUtil.DeleteRemoteService(nodeInfo.getOutNode().getId(), serviceName);
@@ -1189,7 +1211,7 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
             }
         }
 
-        // 多级隧道转发需要更新多级链和远程服务
+        // 多级隧道转发需要更新多级链、中转节点relay服务和出口远程服务
         if (tunnel.getType() == TUNNEL_TYPE_MULTI_HOP_TUNNEL) {
             R multiHopChainResult = updateMultiHopChainService(nodeInfo.getInNode(), serviceName, tunnel.getHopNodes(), forward.getId());
             if (multiHopChainResult.getCode() != 0) {
@@ -1197,6 +1219,22 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
                 return multiHopChainResult;
             }
 
+            // 更新tunnel表，保存处理后的hopNodes配置（包含分配的端口）
+            String processedHopNodesJson = (String) multiHopChainResult.getData();
+            if (processedHopNodesJson != null && !processedHopNodesJson.equals(tunnel.getHopNodes())) {
+                tunnel.setHopNodes(processedHopNodesJson);
+                tunnelService.updateById(tunnel);
+                log.info("已更新隧道{}的hopNodes配置，包含分配的端口", tunnel.getId());
+            }
+
+            // 更新中转节点的relay服务
+            R hopRelayResult = updateHopNodeRelayServices(serviceName, processedHopNodesJson, tunnel.getProtocol());
+            if (hopRelayResult.getCode() != 0) {
+                updateForwardStatusToError(forward);
+                return hopRelayResult;
+            }
+
+            // 更新出口节点的remote服务
             R remoteResult = updateRemoteService(nodeInfo.getOutNode(), serviceName, forward, tunnel.getProtocol(), forward.getInterfaceName());
             if (remoteResult.getCode() != 0) {
                 updateForwardStatusToError(forward);
@@ -1341,13 +1379,18 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
             }
         }
 
-        // 多级隧道转发需要删除多级链和远程服务
+        // 多级隧道转发需要删除多级链、中转节点relay服务和出口远程服务
         if (tunnel.getType() == TUNNEL_TYPE_MULTI_HOP_TUNNEL) {
+            // 删除多级链
             GostDto multiHopChainResult = GostUtil.DeleteMultiHopChains(nodeInfo.getInNode().getId(), serviceName);
             if (!isGostOperationSuccess(multiHopChainResult)) {
                 return R.err(multiHopChainResult.getMsg());
             }
 
+            // 删除中转节点的relay服务
+            deleteHopNodeRelayServices(serviceName, tunnel.getHopNodes());
+
+            // 删除出口节点的remote服务
             if (nodeInfo.getOutNode() != null) {
                 GostDto remoteResult = GostUtil.DeleteRemoteService(nodeInfo.getOutNode().getId(), serviceName);
                 if (!isGostOperationSuccess(remoteResult)) {
@@ -1433,6 +1476,7 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
 
     /**
      * 创建多级链服务
+     * @return R对象，如果成功，data字段包含处理后的hopNodesJson
      */
     private R createMultiHopChainService(Node inNode, String serviceName, String hopNodesJson) {
         // 处理hopNodes配置，自动填充IP和端口
@@ -1442,7 +1486,12 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
         }
 
         GostDto result = GostUtil.AddMultiHopChains(inNode.getId(), serviceName, processedHopNodesJson);
-        return isGostOperationSuccess(result) ? R.ok() : R.err(result.getMsg());
+        if (isGostOperationSuccess(result)) {
+            // 返回处理后的配置，以便调用者更新tunnel表
+            return R.ok(processedHopNodesJson);
+        } else {
+            return R.err(result.getMsg());
+        }
     }
 
     /**
@@ -1474,6 +1523,114 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
     }
 
     /**
+     * 为所有中转节点创建relay服务
+     */
+    private R createHopNodeRelayServices(String serviceName, String hopNodesJson, String protocol) {
+        try {
+            JSONArray hopNodesArray = JSONArray.parseArray(hopNodesJson);
+            if (hopNodesArray == null || hopNodesArray.isEmpty()) {
+                return R.ok(); // 没有中转节点，直接返回成功
+            }
+
+            for (int i = 0; i < hopNodesArray.size(); i++) {
+                JSONObject hopNode = hopNodesArray.getJSONObject(i);
+                Long nodeId = hopNode.getLong("nodeId");
+                Integer port = hopNode.getInteger("port");
+                String hopProtocol = hopNode.getString("protocol");
+
+                if (nodeId == null || port == null) {
+                    log.warn("中转节点{}配置不完整，跳过创建relay服务", i + 1);
+                    continue;
+                }
+
+                // 使用节点配置的协议，如果没有则使用隧道协议
+                String relayProtocol = hopProtocol != null ? hopProtocol : protocol;
+
+                GostDto result = GostUtil.AddRelayService(nodeId, serviceName, port, relayProtocol);
+                if (!isGostOperationSuccess(result)) {
+                    log.error("创建中转节点{}的relay服务失败: {}", nodeId, result.getMsg());
+                    return R.err("创建中转节点relay服务失败: " + result.getMsg());
+                }
+
+                log.info("已在中转节点{}创建relay服务，端口: {}, 协议: {}", nodeId, port, relayProtocol);
+            }
+
+            return R.ok();
+        } catch (Exception e) {
+            log.error("创建中转节点relay服务失败: {}", e.getMessage(), e);
+            return R.err("创建中转节点relay服务失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 更新所有中转节点的relay服务
+     */
+    private R updateHopNodeRelayServices(String serviceName, String hopNodesJson, String protocol) {
+        try {
+            JSONArray hopNodesArray = JSONArray.parseArray(hopNodesJson);
+            if (hopNodesArray == null || hopNodesArray.isEmpty()) {
+                return R.ok(); // 没有中转节点，直接返回成功
+            }
+
+            for (int i = 0; i < hopNodesArray.size(); i++) {
+                JSONObject hopNode = hopNodesArray.getJSONObject(i);
+                Long nodeId = hopNode.getLong("nodeId");
+                Integer port = hopNode.getInteger("port");
+                String hopProtocol = hopNode.getString("protocol");
+
+                if (nodeId == null || port == null) {
+                    log.warn("中转节点{}配置不完整，跳过更新relay服务", i + 1);
+                    continue;
+                }
+
+                // 使用节点配置的协议，如果没有则使用隧道协议
+                String relayProtocol = hopProtocol != null ? hopProtocol : protocol;
+
+                GostDto result = GostUtil.UpdateRelayService(nodeId, serviceName, port, relayProtocol);
+                if (result.getMsg().contains(GOST_NOT_FOUND_MSG)) {
+                    result = GostUtil.AddRelayService(nodeId, serviceName, port, relayProtocol);
+                }
+
+                if (!isGostOperationSuccess(result)) {
+                    log.error("更新中转节点{}的relay服务失败: {}", nodeId, result.getMsg());
+                    return R.err("更新中转节点relay服务失败: " + result.getMsg());
+                }
+
+                log.info("已更新中转节点{}的relay服务，端口: {}, 协议: {}", nodeId, port, relayProtocol);
+            }
+
+            return R.ok();
+        } catch (Exception e) {
+            log.error("更新中转节点relay服务失败: {}", e.getMessage(), e);
+            return R.err("更新中转节点relay服务失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 删除所有中转节点的relay服务
+     */
+    private void deleteHopNodeRelayServices(String serviceName, String hopNodesJson) {
+        try {
+            JSONArray hopNodesArray = JSONArray.parseArray(hopNodesJson);
+            if (hopNodesArray == null || hopNodesArray.isEmpty()) {
+                return;
+            }
+
+            for (int i = 0; i < hopNodesArray.size(); i++) {
+                JSONObject hopNode = hopNodesArray.getJSONObject(i);
+                Long nodeId = hopNode.getLong("nodeId");
+
+                if (nodeId != null) {
+                    GostUtil.DeleteRelayService(nodeId, serviceName);
+                    log.info("已删除中转节点{}的relay服务", nodeId);
+                }
+            }
+        } catch (Exception e) {
+            log.error("删除中转节点relay服务失败: {}", e.getMessage(), e);
+        }
+    }
+
+    /**
      * 创建主服务
      */
     private R createMainService(Node inNode, String serviceName, Forward forward, Integer limiter, Integer tunnelType, Tunnel tunnel, String strategy, String interfaceName) {
@@ -1483,6 +1640,7 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
 
     /**
      * 更新多级链服务
+     * @return R对象，如果成功，data字段包含处理后的hopNodesJson
      */
     private R updateMultiHopChainService(Node inNode, String serviceName, String hopNodesJson, Long excludeForwardId) {
         // 处理hopNodes配置，自动填充IP和端口
@@ -1495,7 +1653,12 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
         if (result.getMsg().contains(GOST_NOT_FOUND_MSG)) {
             result = GostUtil.AddMultiHopChains(inNode.getId(), serviceName, processedHopNodesJson);
         }
-        return isGostOperationSuccess(result) ? R.ok() : R.err(result.getMsg());
+        if (isGostOperationSuccess(result)) {
+            // 返回处理后的配置，以便调用者更新tunnel表
+            return R.ok(processedHopNodesJson);
+        } else {
+            return R.err(result.getMsg());
+        }
     }
 
     /**

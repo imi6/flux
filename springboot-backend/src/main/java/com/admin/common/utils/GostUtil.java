@@ -161,6 +161,68 @@ public class GostUtil {
         return WebSocketServer.send_msg(node_id, req, "DeleteService");
     }
 
+    /**
+     * 添加Relay服务（用于中转节点）
+     * @param node_id 节点ID
+     * @param name 服务名称
+     * @param port 监听端口
+     * @param protocol 协议类型
+     * @return 操作结果
+     */
+    public static GostDto AddRelayService(Long node_id, String name, Integer port, String protocol) {
+        JSONObject service = new JSONObject();
+        service.put("name", name + "_relay");
+        service.put("addr", ":" + port);
+
+        // 配置监听器
+        JSONObject listener = new JSONObject();
+        listener.put("type", protocol);
+        service.put("listener", listener);
+
+        // 配置处理器 - relay类型
+        JSONObject handler = new JSONObject();
+        handler.put("type", "relay");
+        service.put("handler", handler);
+
+        JSONArray services = new JSONArray();
+        services.add(service);
+        return WebSocketServer.send_msg(node_id, services, "AddService");
+    }
+
+    /**
+     * 更新Relay服务
+     */
+    public static GostDto UpdateRelayService(Long node_id, String name, Integer port, String protocol) {
+        JSONObject service = new JSONObject();
+        service.put("name", name + "_relay");
+        service.put("addr", ":" + port);
+
+        // 配置监听器
+        JSONObject listener = new JSONObject();
+        listener.put("type", protocol);
+        service.put("listener", listener);
+
+        // 配置处理器 - relay类型
+        JSONObject handler = new JSONObject();
+        handler.put("type", "relay");
+        service.put("handler", handler);
+
+        JSONArray services = new JSONArray();
+        services.add(service);
+        return WebSocketServer.send_msg(node_id, services, "UpdateService");
+    }
+
+    /**
+     * 删除Relay服务
+     */
+    public static GostDto DeleteRelayService(Long node_id, String name) {
+        JSONArray data = new JSONArray();
+        data.add(name + "_relay");
+        JSONObject req = new JSONObject();
+        req.put("services", data);
+        return WebSocketServer.send_msg(node_id, req, "DeleteService");
+    }
+
     public static GostDto PauseService(Long node_id, String name) {
         JSONObject data = new JSONObject();
         JSONArray services = new JSONArray();

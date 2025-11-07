@@ -718,27 +718,15 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
         } else if (tunnel.getType() == TUNNEL_TYPE_MULTI_HOP_TUNNEL) {
             // 多级隧道转发：入口 -> 中转节点 -> 出口 -> 外网
             try {
-                // 从Forward表中获取实际运行的hopNodes配置（包含已分配的端口）
-                List<Forward> forwards = forwardService.list(new QueryWrapper<Forward>()
-                    .eq("tunnel_id", tunnel.getId())
-                    .eq("status", TUNNEL_STATUS_ACTIVE));
-
+                // 直接从tunnel表读取hopNodes配置
+                // 注意：创建Forward时已经将处理后的配置（包含分配的端口）保存到tunnel表
                 String hopNodesJson = tunnel.getHopNodes();
 
-                log.info("原始hopNodes配置: " + hopNodesJson);
+                log.info("隧道{}的hopNodes配置: " + hopNodesJson, tunnel.getId());
 
-                // 如果有活跃的Forward，尝试从中获取处理后的hopNodes配置
-                if (!forwards.isEmpty()) {
-                    Forward forward = forwards.get(0);
-                    // 注意：Forward表中没有存储hopNodes，所以我们需要动态处理
-                    // 这里我们使用forwardService的processHopNodesConfig方法
-                    hopNodesJson = forwardService.processHopNodesConfigForDiagnosis(tunnel.getHopNodes(), null);
-                    log.info("处理后hopNodes配置: " + hopNodesJson);
-                }
-
-                if (hopNodesJson == null) {
-                    log.error("processHopNodesConfigForDiagnosis返回null");
-                    return R.err("无法处理多级节点配置，请检查节点端口分配");
+                if (hopNodesJson == null || hopNodesJson.trim().isEmpty()) {
+                    log.error("隧道{}的hopNodes配置为空", tunnel.getId());
+                    return R.err("多级节点配置为空");
                 }
 
                 com.alibaba.fastjson.JSONArray hopNodesArray = com.alibaba.fastjson.JSONArray.parseArray(hopNodesJson);
