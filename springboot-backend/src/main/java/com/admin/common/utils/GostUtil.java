@@ -710,8 +710,6 @@ public class GostUtil {
                 return error;
             }
 
-            JSONArray hops = new JSONArray();
-
             // 按hopOrder排序，确保节点顺序正确
             hopNodesArray.sort((o1, o2) -> {
                 JSONObject j1 = (JSONObject) o1;
@@ -719,61 +717,61 @@ public class GostUtil {
                 return j1.getInteger("hopOrder") - j2.getInteger("hopOrder");
             });
 
-            // 为每个节点创建一个hop
-            for (int i = 0; i < hopNodesArray.size(); i++) {
-                JSONObject hopNode = hopNodesArray.getJSONObject(i);
+            // ✅ 修复：入口节点的chain只需要指向第一个中转节点
+            // 后续的跳转由各个中转节点的relay服务的forwarder配置完成
+            JSONObject firstHopNode = hopNodesArray.getJSONObject(0);
 
-                String nodeIp = hopNode.getString("nodeIp");
-                Integer port = hopNode.getInteger("port");
-                String protocol = hopNode.getString("protocol");
-                String interfaceName = hopNode.getString("interfaceName");
+            String nodeIp = firstHopNode.getString("nodeIp");
+            Integer port = firstHopNode.getInteger("port");
+            String protocol = firstHopNode.getString("protocol");
+            String interfaceName = firstHopNode.getString("interfaceName");
 
-                if (protocol == null || protocol.isEmpty()) {
-                    protocol = "tls";
-                }
-
-                // 构建远程地址
-                String remoteAddr = nodeIp + ":" + port;
-                if (nodeIp.contains(":")) {
-                    remoteAddr = "[" + nodeIp + "]:" + port;
-                }
-
-                // 创建dialer
-                JSONObject dialer = new JSONObject();
-                dialer.put("type", protocol);
-
-                if ("quic".equals(protocol)) {
-                    JSONObject metadata = new JSONObject();
-                    metadata.put("keepAlive", true);
-                    metadata.put("ttl", "10s");
-                    dialer.put("metadata", metadata);
-                }
-
-                // 创建connector
-                JSONObject connector = new JSONObject();
-                connector.put("type", "relay");
-
-                // 创建node
-                JSONObject node = new JSONObject();
-                node.put("name", "hop-node-" + (i + 1));
-                node.put("addr", remoteAddr);
-                node.put("connector", connector);
-                node.put("dialer", dialer);
-
-                if (StringUtils.isNotBlank(interfaceName)) {
-                    node.put("interface", interfaceName);
-                }
-
-                // 创建hop
-                JSONArray nodes = new JSONArray();
-                nodes.add(node);
-
-                JSONObject hop = new JSONObject();
-                hop.put("name", "hop-" + name + "-" + (i + 1));
-                hop.put("nodes", nodes);
-
-                hops.add(hop);
+            if (protocol == null || protocol.isEmpty()) {
+                protocol = "tls";
             }
+
+            // 构建远程地址
+            String remoteAddr = nodeIp + ":" + port;
+            if (nodeIp.contains(":")) {
+                remoteAddr = "[" + nodeIp + "]:" + port;
+            }
+
+            // 创建dialer
+            JSONObject dialer = new JSONObject();
+            dialer.put("type", protocol);
+
+            if ("quic".equals(protocol)) {
+                JSONObject metadata = new JSONObject();
+                metadata.put("keepAlive", true);
+                metadata.put("ttl", "10s");
+                dialer.put("metadata", metadata);
+            }
+
+            // 创建connector
+            JSONObject connector = new JSONObject();
+            connector.put("type", "relay");
+
+            // 创建node
+            JSONObject node = new JSONObject();
+            node.put("name", "node-" + name);
+            node.put("addr", remoteAddr);
+            node.put("connector", connector);
+            node.put("dialer", dialer);
+
+            if (StringUtils.isNotBlank(interfaceName)) {
+                node.put("interface", interfaceName);
+            }
+
+            // 创建hop（只包含第一个中转节点）
+            JSONArray nodes = new JSONArray();
+            nodes.add(node);
+
+            JSONObject hop = new JSONObject();
+            hop.put("name", "hop-" + name);
+            hop.put("nodes", nodes);
+
+            JSONArray hops = new JSONArray();
+            hops.add(hop);
 
             // 构建chain数据
             JSONObject data = new JSONObject();
@@ -803,8 +801,6 @@ public class GostUtil {
                 return error;
             }
 
-            JSONArray hops = new JSONArray();
-
             // 按hopOrder排序
             hopNodesArray.sort((o1, o2) -> {
                 JSONObject j1 = (JSONObject) o1;
@@ -812,56 +808,55 @@ public class GostUtil {
                 return j1.getInteger("hopOrder") - j2.getInteger("hopOrder");
             });
 
-            // 为每个节点创建一个hop
-            for (int i = 0; i < hopNodesArray.size(); i++) {
-                JSONObject hopNode = hopNodesArray.getJSONObject(i);
+            // ✅ 修复：入口节点的chain只需要指向第一个中转节点
+            JSONObject firstHopNode = hopNodesArray.getJSONObject(0);
 
-                String nodeIp = hopNode.getString("nodeIp");
-                Integer port = hopNode.getInteger("port");
-                String protocol = hopNode.getString("protocol");
-                String interfaceName = hopNode.getString("interfaceName");
+            String nodeIp = firstHopNode.getString("nodeIp");
+            Integer port = firstHopNode.getInteger("port");
+            String protocol = firstHopNode.getString("protocol");
+            String interfaceName = firstHopNode.getString("interfaceName");
 
-                if (protocol == null || protocol.isEmpty()) {
-                    protocol = "tls";
-                }
-
-                String remoteAddr = nodeIp + ":" + port;
-                if (nodeIp.contains(":")) {
-                    remoteAddr = "[" + nodeIp + "]:" + port;
-                }
-
-                JSONObject dialer = new JSONObject();
-                dialer.put("type", protocol);
-
-                if ("quic".equals(protocol)) {
-                    JSONObject metadata = new JSONObject();
-                    metadata.put("keepAlive", true);
-                    metadata.put("ttl", "10s");
-                    dialer.put("metadata", metadata);
-                }
-
-                JSONObject connector = new JSONObject();
-                connector.put("type", "relay");
-
-                JSONObject node = new JSONObject();
-                node.put("name", "hop-node-" + (i + 1));
-                node.put("addr", remoteAddr);
-                node.put("connector", connector);
-                node.put("dialer", dialer);
-
-                if (StringUtils.isNotBlank(interfaceName)) {
-                    node.put("interface", interfaceName);
-                }
-
-                JSONArray nodes = new JSONArray();
-                nodes.add(node);
-
-                JSONObject hop = new JSONObject();
-                hop.put("name", "hop-" + name + "-" + (i + 1));
-                hop.put("nodes", nodes);
-
-                hops.add(hop);
+            if (protocol == null || protocol.isEmpty()) {
+                protocol = "tls";
             }
+
+            String remoteAddr = nodeIp + ":" + port;
+            if (nodeIp.contains(":")) {
+                remoteAddr = "[" + nodeIp + "]:" + port;
+            }
+
+            JSONObject dialer = new JSONObject();
+            dialer.put("type", protocol);
+
+            if ("quic".equals(protocol)) {
+                JSONObject metadata = new JSONObject();
+                metadata.put("keepAlive", true);
+                metadata.put("ttl", "10s");
+                dialer.put("metadata", metadata);
+            }
+
+            JSONObject connector = new JSONObject();
+            connector.put("type", "relay");
+
+            JSONObject node = new JSONObject();
+            node.put("name", "node-" + name);
+            node.put("addr", remoteAddr);
+            node.put("connector", connector);
+            node.put("dialer", dialer);
+
+            if (StringUtils.isNotBlank(interfaceName)) {
+                node.put("interface", interfaceName);
+            }
+
+            JSONArray nodes = new JSONArray();
+            nodes.add(node);
+
+            JSONObject hop = new JSONObject();
+            hop.put("name", "hop-" + name);
+            hop.put("nodes", nodes);
+
+            JSONArray hops = new JSONArray();
+            hops.add(hop);
 
             JSONObject data = new JSONObject();
             data.put("name", name + "_multi_hop_chains");
