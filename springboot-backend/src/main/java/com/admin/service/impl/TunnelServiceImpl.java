@@ -735,9 +735,10 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
 
                         log.info("中转节点" + (i + 1) + " - IP: " + hopIp + ", Port: " + hopPort);
 
-                        if (hopPort == null || hopPort == 0) {
-                            log.warn("中转节点" + (i + 1) + "的端口未分配，跳过诊断");
-                            continue;
+                        // ✅ 修复：即使hopPort为0或null，也继续诊断
+                        // TCP ping会自然失败并返回错误信息，这样用户可以看到诊断结果
+                        if (hopPort == null) {
+                            hopPort = 0;  // 设置默认值，避免NullPointerException
                         }
 
                         log.info("开始诊断: 入口->中转节点" + (i + 1));
