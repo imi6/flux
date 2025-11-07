@@ -1022,7 +1022,8 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
         }
 
         Integer outPort = null;
-        if (tunnel.getType() == TUNNEL_TYPE_TUNNEL_FORWARD) {
+        // 隧道转发和多级隧道转发都需要分配出口端口
+        if (tunnel.getType() == TUNNEL_TYPE_TUNNEL_FORWARD || tunnel.getType() == TUNNEL_TYPE_MULTI_HOP_TUNNEL) {
             outPort = allocateOutPort(tunnel, excludeForwardId);
             if (outPort == null) {
                 return PortAllocation.error("隧道出口端口已满，无法分配新端口");

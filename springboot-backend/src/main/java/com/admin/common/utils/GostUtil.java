@@ -72,10 +72,12 @@ public class GostUtil {
             data.put("metadata", metadata);
         }
 
-
+        // 出口节点不需要设置handler，让GOST自动处理
+        // 或者使用auto类型
         JSONObject handler = new JSONObject();
-        handler.put("type", "relay");
+        handler.put("type", "auto");
         data.put("handler", handler);
+
         JSONObject listener = new JSONObject();
         listener.put("type", protocol);
         data.put("listener", listener);
@@ -118,10 +120,11 @@ public class GostUtil {
             data.put("metadata", metadata);
         }
 
-
+        // 出口节点不需要设置handler为relay，使用auto类型
         JSONObject handler = new JSONObject();
-        handler.put("type", "relay");
+        handler.put("type", "auto");
         data.put("handler", handler);
+
         JSONObject listener = new JSONObject();
         listener.put("type", protocol);
         data.put("listener", listener);
