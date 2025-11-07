@@ -540,9 +540,17 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
                 return R.err("出口节点不存在");
             }
 
-            // 解析中转节点配置
+            // ✅ 解析中转节点配置 - 从forward.hopNodesConfig读取实际分配的端口
             try {
-                com.alibaba.fastjson.JSONArray hopNodesArray = com.alibaba.fastjson.JSONArray.parseArray(tunnel.getHopNodes());
+                // ✅ 优先使用forward.hopNodesConfig（包含实际分配的端口）
+                String hopNodesJson = forward.getHopNodesConfig();
+                if (StrUtil.isBlank(hopNodesJson)) {
+                    // 如果forward.hopNodesConfig为空，回退到tunnel.hopNodes
+                    hopNodesJson = tunnel.getHopNodes();
+                    log.warn("转发{}的hopNodesConfig为空，使用tunnel.hopNodes", forward.getId());
+                }
+
+                com.alibaba.fastjson.JSONArray hopNodesArray = com.alibaba.fastjson.JSONArray.parseArray(hopNodesJson);
                 if (hopNodesArray != null && !hopNodesArray.isEmpty()) {
                     // 按hopOrder排序
                     hopNodesArray.sort((o1, o2) -> {
@@ -556,6 +564,8 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
                         JSONObject hop = hopNodesArray.getJSONObject(i);
                         String hopIp = hop.getString("nodeIp");
                         Integer hopPort = hop.getInteger("port");
+
+                        log.info("诊断转发{} - 中转节点{}: IP={}, Port={}", forward.getId(), (i + 1), hopIp, hopPort);
 
                         DiagnosisResult inToHopResult = performTcpPingDiagnosis(
                             inNode,
