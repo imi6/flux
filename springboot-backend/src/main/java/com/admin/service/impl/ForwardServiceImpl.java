@@ -1127,13 +1127,12 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
                 return multiHopChainResult;
             }
 
-            // 更新tunnel表，保存处理后的hopNodes配置（包含分配的端口）
+            // ✅ 获取处理后的hopNodes配置（包含为当前转发分配的独立端口）
             String processedHopNodesJson = (String) multiHopChainResult.getData();
-            if (processedHopNodesJson != null && !processedHopNodesJson.equals(tunnel.getHopNodes())) {
-                tunnel.setHopNodes(processedHopNodesJson);
-                tunnelService.updateById(tunnel);
-                log.info("已更新隧道{}的hopNodes配置，包含分配的端口", tunnel.getId());
-            }
+
+            // ❌ 不再更新tunnel表，因为每个转发使用独立的端口
+            // 如果更新tunnel表，第二个转发会复用第一个转发的端口，导致冲突
+            log.info("为转发{}分配的中转节点端口配置: {}", forward.getName(), processedHopNodesJson);
 
             // 为每个中转节点创建relay服务（需要传入出口节点信息）
             R hopRelayResult = createHopNodeRelayServices(serviceName, processedHopNodesJson, tunnel.getProtocol(), nodeInfo.getOutNode(), forward.getOutPort());
@@ -1222,13 +1221,11 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
                 return multiHopChainResult;
             }
 
-            // 更新tunnel表，保存处理后的hopNodes配置（包含分配的端口）
+            // ✅ 获取处理后的hopNodes配置
             String processedHopNodesJson = (String) multiHopChainResult.getData();
-            if (processedHopNodesJson != null && !processedHopNodesJson.equals(tunnel.getHopNodes())) {
-                tunnel.setHopNodes(processedHopNodesJson);
-                tunnelService.updateById(tunnel);
-                log.info("已更新隧道{}的hopNodes配置，包含分配的端口", tunnel.getId());
-            }
+
+            // ❌ 不再更新tunnel表，因为每个转发使用独立的端口
+            log.info("为转发{}更新的中转节点端口配置: {}", forward.getName(), processedHopNodesJson);
 
             // 更新中转节点的relay服务（需要传入出口节点信息）
             R hopRelayResult = updateHopNodeRelayServices(serviceName, processedHopNodesJson, tunnel.getProtocol(), nodeInfo.getOutNode(), forward.getOutPort());
@@ -1414,7 +1411,7 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
      */
     @Override
     public String processHopNodesConfigForDiagnosis(String hopNodesJson, Long excludeForwardId) {
-        return processHopNodesConfig(hopNodesJson, excludeForwardId);
+        return processHopNodesConfig(hopNodesJson, excludeForwardId, false);
     }
 
     /**
@@ -1422,9 +1419,10 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
      *
      * @param hopNodesJson 原始的多级节点配置JSON
      * @param excludeForwardId 要排除的转发ID（用于更新时）
+     * @param forceAllocatePort 是否强制重新分配端口（即使hopNodes中已有端口）
      * @return 处理后的JSON字符串，如果处理失败返回null
      */
-    private String processHopNodesConfig(String hopNodesJson, Long excludeForwardId) {
+    private String processHopNodesConfig(String hopNodesJson, Long excludeForwardId, boolean forceAllocatePort) {
         try {
             if (StrUtil.isBlank(hopNodesJson)) {
                 return hopNodesJson;
@@ -1434,6 +1432,9 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
             if (hopNodesArray == null || hopNodesArray.isEmpty()) {
                 return hopNodesJson;
             }
+
+            // ✅ 跟踪当前处理过程中已分配的端口（按节点ID分组）
+            Map<Long, Set<Integer>> allocatedPortsInCurrentProcess = new HashMap<>();
 
             // 处理每个节点
             for (int i = 0; i < hopNodesArray.size(); i++) {
@@ -1457,15 +1458,37 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
                     hopNode.put("nodeIp", node.getServerIp());
                 }
 
-                // 如果port为0或null，自动分配端口
+                // 如果port为0或null，或者强制重新分配，则自动分配端口
                 Integer port = hopNode.getInteger("port");
-                if (port == null || port == 0) {
-                    Integer allocatedPort = allocatePortForNode(nodeId, excludeForwardId);
+                if (port == null || port == 0 || forceAllocatePort) {
+                    // ✅ 获取数据库中已占用的端口
+                    Set<Integer> usedPorts = getAllUsedPortsOnNode(nodeId, excludeForwardId);
+
+                    // ✅ 加上当前处理过程中已分配的端口
+                    Set<Integer> portsAllocatedForThisNode = allocatedPortsInCurrentProcess.get(nodeId);
+                    if (portsAllocatedForThisNode != null) {
+                        usedPorts.addAll(portsAllocatedForThisNode);
+                    }
+
+                    // ✅ 在可用端口中寻找
+                    Integer allocatedPort = null;
+                    for (int p = node.getPortSta(); p <= node.getPortEnd(); p++) {
+                        if (!usedPorts.contains(p)) {
+                            allocatedPort = p;
+                            break;
+                        }
+                    }
+
                     if (allocatedPort == null) {
                         log.error("无法为节点 {} 分配可用端口", nodeId);
                         return null;
                     }
+
                     hopNode.put("port", allocatedPort);
+
+                    // ✅ 记录已分配的端口
+                    allocatedPortsInCurrentProcess.computeIfAbsent(nodeId, k -> new HashSet<>()).add(allocatedPort);
+                    log.info("为中转节点{}分配端口: {}", nodeId, allocatedPort);
                 }
             }
 
@@ -1482,8 +1505,8 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
      * @return R对象，如果成功，data字段包含处理后的hopNodesJson
      */
     private R createMultiHopChainService(Node inNode, String serviceName, String hopNodesJson) {
-        // 处理hopNodes配置，自动填充IP和端口
-        String processedHopNodesJson = processHopNodesConfig(hopNodesJson, null);
+        // ✅ 处理hopNodes配置，强制重新分配端口（每个转发使用独立的端口）
+        String processedHopNodesJson = processHopNodesConfig(hopNodesJson, null, true);
         if (processedHopNodesJson == null) {
             return R.err("处理多级节点配置失败，无法分配端口或获取节点信息");
         }
@@ -1762,8 +1785,8 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
      * @return R对象，如果成功，data字段包含处理后的hopNodesJson
      */
     private R updateMultiHopChainService(Node inNode, String serviceName, String hopNodesJson, Long excludeForwardId) {
-        // 处理hopNodes配置，自动填充IP和端口
-        String processedHopNodesJson = processHopNodesConfig(hopNodesJson, excludeForwardId);
+        // 处理hopNodes配置，自动填充IP和端口（更新时不强制重新分配，保持原有端口）
+        String processedHopNodesJson = processHopNodesConfig(hopNodesJson, excludeForwardId, false);
         if (processedHopNodesJson == null) {
             return R.err("处理多级节点配置失败，无法分配端口或获取节点信息");
         }
@@ -1901,12 +1924,18 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
         // 获取该节点上所有已被占用的端口（包括作为入口和出口使用的端口）
         Set<Integer> usedPorts = getAllUsedPortsOnNode(nodeId, excludeForwardId);
 
+        log.info("为节点{}分配端口，已占用端口: {}, 端口范围: {}-{}",
+            nodeId, usedPorts, node.getPortSta(), node.getPortEnd());
+
         // 在节点端口范围内寻找未使用的端口
         for (int port = node.getPortSta(); port <= node.getPortEnd(); port++) {
             if (!usedPorts.contains(port)) {
+                log.info("为节点{}分配端口: {}", nodeId, port);
                 return port;
             }
         }
+
+        log.error("节点{}没有可用端口！已占用端口数: {}", nodeId, usedPorts.size());
         return null;
     }
 
@@ -1962,6 +1991,8 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
 
         // ✅ 3. 收集该节点作为中转节点时占用的端口
         List<Tunnel> allTunnels = tunnelService.list(new QueryWrapper<Tunnel>().eq("type", TUNNEL_TYPE_MULTI_HOP_TUNNEL));
+        log.info("检查节点{}作为中转节点的端口占用，共{}个多级隧道", nodeId, allTunnels.size());
+
         for (Tunnel tunnel : allTunnels) {
             String hopNodesJson = tunnel.getHopNodes();
             if (StrUtil.isBlank(hopNodesJson)) {
@@ -1982,6 +2013,7 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
 
                     // 如果是当前节点，且端口已分配（不为0或null）
                     if (nodeId.equals(hopNodeId) && hopPort != null && hopPort != 0) {
+                        log.info("隧道{}的中转节点{}占用端口: {}", tunnel.getId(), hopNodeId, hopPort);
                         usedPorts.add(hopPort);
                     }
                 }
@@ -1990,6 +2022,7 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
             }
         }
 
+        log.info("节点{}总共已占用端口: {}", nodeId, usedPorts);
         return usedPorts;
     }
 
