@@ -759,11 +759,13 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
 
                     if (lastHopNode != null) {
                         int outNodePort = getOutNodeTcpPort(tunnel.getId());
+                        // ✅ 修复：显示具体的中转节点编号
+                        int lastHopIndex = hopNodesArray.size();
                         DiagnosisResult hopToOutResult = performTcpPingDiagnosisWithConnectionCheck(
                             lastHopNode,
                             outNode.getServerIp(),
                             outNodePort,
-                            "中转节点->出口"
+                            "中转节点" + lastHopIndex + "->出口"
                         );
                         results.add(hopToOutResult);
                     }

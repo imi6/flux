@@ -562,11 +562,13 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
                     Node lastHopNode = nodeService.getNodeById(lastHopNodeId);
 
                     if (lastHopNode != null && forward.getOutPort() != null) {
+                        // ✅ 修复：显示具体的中转节点编号
+                        int lastHopIndex = hopNodesArray.size();
                         DiagnosisResult hopToOutResult = performTcpPingDiagnosis(
                             lastHopNode,
                             outNode.getServerIp(),
                             forward.getOutPort(),
-                            "中转节点->出口"
+                            "中转节点" + lastHopIndex + "->出口"
                         );
                         results.add(hopToOutResult);
                     }
