@@ -1508,6 +1508,34 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
     }
 
     /**
+     * 在出口节点创建主服务（用于多级隧道转发）
+     */
+    private R createOutNodeMainService(Node outNode, String serviceName, Integer port, String protocol, String interfaceName) {
+        GostDto result = GostUtil.AddOutNodeService(outNode.getId(), serviceName, port, protocol, interfaceName);
+        return isGostOperationSuccess(result) ? R.ok() : R.err(result.getMsg());
+    }
+
+    /**
+     * 更新链服务
+     */
+    private R updateChainService(Node node, String serviceName, String outIp, Integer outPort, String protocol, String interfaceName) {
+        String remoteAddr = outIp + ":" + outPort;
+        if (outIp.contains(":")) {
+            remoteAddr = "[" + outIp + "]:" + outPort;
+        }
+        GostDto result = GostUtil.UpdateChains(node.getId(), serviceName, remoteAddr, protocol, interfaceName);
+        return isGostOperationSuccess(result) ? R.ok() : R.err(result.getMsg());
+    }
+
+    /**
+     * 更新出口节点主服务
+     */
+    private R updateOutNodeMainService(Node outNode, String serviceName, Integer port, String protocol, String interfaceName) {
+        GostDto result = GostUtil.UpdateOutNodeService(outNode.getId(), serviceName, port, protocol, interfaceName);
+        return isGostOperationSuccess(result) ? R.ok() : R.err(result.getMsg());
+    }
+
+    /**
      * 创建远程服务
      */
     private R createRemoteService(Node outNode, String serviceName, Forward forward, String protocol, String interfaceName) {

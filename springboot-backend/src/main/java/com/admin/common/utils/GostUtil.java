@@ -72,14 +72,14 @@ public class GostUtil {
             data.put("metadata", metadata);
         }
 
-        // 出口节点不需要设置handler，让GOST自动处理
-        // 或者使用auto类型
+        // 出口节点使用relay类型handler
         JSONObject handler = new JSONObject();
-        handler.put("type", "auto");
+        handler.put("type", "relay");
         data.put("handler", handler);
 
+        // listener固定使用tcp类型
         JSONObject listener = new JSONObject();
-        listener.put("type", protocol);
+        listener.put("type", "tcp");
         data.put("listener", listener);
         JSONObject forwarder = new JSONObject();
         JSONArray nodes = new JSONArray();
@@ -120,13 +120,14 @@ public class GostUtil {
             data.put("metadata", metadata);
         }
 
-        // 出口节点不需要设置handler为relay，使用auto类型
+        // 出口节点使用relay类型handler
         JSONObject handler = new JSONObject();
-        handler.put("type", "auto");
+        handler.put("type", "relay");
         data.put("handler", handler);
 
+        // listener固定使用tcp类型
         JSONObject listener = new JSONObject();
-        listener.put("type", protocol);
+        listener.put("type", "tcp");
         data.put("listener", listener);
         JSONObject forwarder = new JSONObject();
         JSONArray nodes = new JSONArray();
@@ -265,6 +266,131 @@ public class GostUtil {
     public static GostDto DeleteRelayService(Long node_id, String name) {
         JSONArray data = new JSONArray();
         data.add(name + "_relay");
+        JSONObject req = new JSONObject();
+        req.put("services", data);
+        return WebSocketServer.send_msg(node_id, req, "DeleteService");
+    }
+
+    /**
+     * 在出口节点添加主服务（用于多级隧道转发）
+     * 创建TCP和UDP服务，使用chain转发到最终目标
+     */
+    public static GostDto AddOutNodeService(Long node_id, String name, Integer port, String protocol, String interfaceName) {
+        JSONArray services = new JSONArray();
+
+        // 创建TCP服务
+        JSONObject tcpService = new JSONObject();
+        tcpService.put("name", name + "_tcp");
+        tcpService.put("addr", "[::]:" + port);
+
+        if (StringUtils.isNotBlank(interfaceName)) {
+            JSONObject metadata = new JSONObject();
+            metadata.put("interface", interfaceName);
+            tcpService.put("metadata", metadata);
+        }
+
+        JSONObject tcpHandler = new JSONObject();
+        tcpHandler.put("type", "tcp");
+        tcpHandler.put("chain", name + "_" + protocol + "_chain");
+        tcpService.put("handler", tcpHandler);
+
+        JSONObject tcpListener = new JSONObject();
+        tcpListener.put("type", "tcp");
+        tcpService.put("listener", tcpListener);
+
+        services.add(tcpService);
+
+        // 创建UDP服务
+        JSONObject udpService = new JSONObject();
+        udpService.put("name", name + "_udp");
+        udpService.put("addr", "[::]:" + port);
+
+        if (StringUtils.isNotBlank(interfaceName)) {
+            JSONObject metadata = new JSONObject();
+            metadata.put("interface", interfaceName);
+            udpService.put("metadata", metadata);
+        }
+
+        JSONObject udpHandler = new JSONObject();
+        udpHandler.put("type", "udp");
+        udpHandler.put("chain", name + "_" + protocol + "_chain");
+        udpService.put("handler", udpHandler);
+
+        JSONObject udpListener = new JSONObject();
+        udpListener.put("type", "udp");
+        JSONObject udpMetadata = new JSONObject();
+        udpMetadata.put("keepAlive", true);
+        udpListener.put("metadata", udpMetadata);
+        udpService.put("listener", udpListener);
+
+        services.add(udpService);
+
+        return WebSocketServer.send_msg(node_id, services, "AddService");
+    }
+
+    /**
+     * 更新出口节点主服务
+     */
+    public static GostDto UpdateOutNodeService(Long node_id, String name, Integer port, String protocol, String interfaceName) {
+        JSONArray services = new JSONArray();
+
+        // 更新TCP服务
+        JSONObject tcpService = new JSONObject();
+        tcpService.put("name", name + "_tcp");
+        tcpService.put("addr", "[::]:" + port);
+
+        if (StringUtils.isNotBlank(interfaceName)) {
+            JSONObject metadata = new JSONObject();
+            metadata.put("interface", interfaceName);
+            tcpService.put("metadata", metadata);
+        }
+
+        JSONObject tcpHandler = new JSONObject();
+        tcpHandler.put("type", "tcp");
+        tcpHandler.put("chain", name + "_" + protocol + "_chain");
+        tcpService.put("handler", tcpHandler);
+
+        JSONObject tcpListener = new JSONObject();
+        tcpListener.put("type", "tcp");
+        tcpService.put("listener", tcpListener);
+
+        services.add(tcpService);
+
+        // 更新UDP服务
+        JSONObject udpService = new JSONObject();
+        udpService.put("name", name + "_udp");
+        udpService.put("addr", "[::]:" + port);
+
+        if (StringUtils.isNotBlank(interfaceName)) {
+            JSONObject metadata = new JSONObject();
+            metadata.put("interface", interfaceName);
+            udpService.put("metadata", metadata);
+        }
+
+        JSONObject udpHandler = new JSONObject();
+        udpHandler.put("type", "udp");
+        udpHandler.put("chain", name + "_" + protocol + "_chain");
+        udpService.put("handler", udpHandler);
+
+        JSONObject udpListener = new JSONObject();
+        udpListener.put("type", "udp");
+        JSONObject udpMetadata = new JSONObject();
+        udpMetadata.put("keepAlive", true);
+        udpListener.put("metadata", udpMetadata);
+        udpService.put("listener", udpListener);
+
+        services.add(udpService);
+
+        return WebSocketServer.send_msg(node_id, services, "UpdateService");
+    }
+
+    /**
+     * 删除出口节点主服务
+     */
+    public static GostDto DeleteOutNodeService(Long node_id, String name) {
+        JSONArray data = new JSONArray();
+        data.add(name + "_tcp");
+        data.add(name + "_udp");
         JSONObject req = new JSONObject();
         req.put("services", data);
         return WebSocketServer.send_msg(node_id, req, "DeleteService");
