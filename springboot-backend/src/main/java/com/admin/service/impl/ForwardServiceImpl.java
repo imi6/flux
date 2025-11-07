@@ -1552,7 +1552,7 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
     }
 
     /**
-     * 为所有中转节点创建relay服务
+     * 为所有中转节点创建relay服务 + chain
      */
     private R createHopNodeRelayServices(String serviceName, String hopNodesJson, String protocol, Node outNode, Integer outPort) {
         try {
@@ -1575,7 +1575,7 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
                 // 使用节点配置的协议，如果没有则使用隧道协议
                 String relayProtocol = hopProtocol != null ? hopProtocol : protocol;
 
-                // 确定下一跳地址
+                // 确定下一跳地址和协议
                 String nextHopAddr;
                 String nextHopProtocol;
 
@@ -1585,6 +1585,9 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
                     String nextHopIp = nextHop.getString("nodeIp");
                     Integer nextHopPort = nextHop.getInteger("port");
                     nextHopProtocol = nextHop.getString("protocol");
+                    if (nextHopProtocol == null || nextHopProtocol.isEmpty()) {
+                        nextHopProtocol = protocol;
+                    }
 
                     if (nextHopIp.contains(":")) {
                         nextHopAddr = "[" + nextHopIp + "]:" + nextHopPort;
@@ -1602,13 +1605,23 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
                     nextHopProtocol = protocol; // 使用隧道协议
                 }
 
-                GostDto result = GostUtil.AddRelayService(nodeId, serviceName, port, relayProtocol, nextHopAddr, nextHopProtocol);
-                if (!isGostOperationSuccess(result)) {
-                    log.error("创建中转节点{}的relay服务失败: {}", nodeId, result.getMsg());
-                    return R.err("创建中转节点relay服务失败: " + result.getMsg());
+                // ✅ 1. 先创建chain（指向下一跳）
+                GostDto chainResult = GostUtil.AddHopNodeChain(nodeId, serviceName, nextHopAddr, nextHopProtocol);
+                if (!isGostOperationSuccess(chainResult)) {
+                    log.error("创建中转节点{}的chain失败: {}", nodeId, chainResult.getMsg());
+                    return R.err("创建中转节点chain失败: " + chainResult.getMsg());
+                }
+                log.info("已在中转节点{}创建chain，下一跳: {}, 协议: {}", nodeId, nextHopAddr, nextHopProtocol);
+
+                // ✅ 2. 再创建relay服务（使用chain）
+                String chainName = serviceName + "_chains";
+                GostDto serviceResult = GostUtil.AddRelayServiceWithChain(nodeId, serviceName, port, relayProtocol, chainName);
+                if (!isGostOperationSuccess(serviceResult)) {
+                    log.error("创建中转节点{}的relay服务失败: {}", nodeId, serviceResult.getMsg());
+                    return R.err("创建中转节点relay服务失败: " + serviceResult.getMsg());
                 }
 
-                log.info("已在中转节点{}创建relay服务，端口: {}, 协议: {}, 下一跳: {}", nodeId, port, relayProtocol, nextHopAddr);
+                log.info("已在中转节点{}创建relay服务，端口: {}, 协议: {}, chain: {}", nodeId, port, relayProtocol, chainName);
             }
 
             return R.ok();
@@ -1619,7 +1632,7 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
     }
 
     /**
-     * 更新所有中转节点的relay服务
+     * 更新所有中转节点的relay服务 + chain
      */
     private R updateHopNodeRelayServices(String serviceName, String hopNodesJson, String protocol, Node outNode, Integer outPort) {
         try {
@@ -1642,7 +1655,7 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
                 // 使用节点配置的协议，如果没有则使用隧道协议
                 String relayProtocol = hopProtocol != null ? hopProtocol : protocol;
 
-                // 确定下一跳地址
+                // 确定下一跳地址和协议
                 String nextHopAddr;
                 String nextHopProtocol;
 
@@ -1652,6 +1665,9 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
                     String nextHopIp = nextHop.getString("nodeIp");
                     Integer nextHopPort = nextHop.getInteger("port");
                     nextHopProtocol = nextHop.getString("protocol");
+                    if (nextHopProtocol == null || nextHopProtocol.isEmpty()) {
+                        nextHopProtocol = protocol;
+                    }
 
                     if (nextHopIp.contains(":")) {
                         nextHopAddr = "[" + nextHopIp + "]:" + nextHopPort;
@@ -1669,17 +1685,30 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
                     nextHopProtocol = protocol; // 使用隧道协议
                 }
 
-                GostDto result = GostUtil.UpdateRelayService(nodeId, serviceName, port, relayProtocol, nextHopAddr, nextHopProtocol);
-                if (result.getMsg().contains(GOST_NOT_FOUND_MSG)) {
-                    result = GostUtil.AddRelayService(nodeId, serviceName, port, relayProtocol, nextHopAddr, nextHopProtocol);
+                // ✅ 1. 更新chain
+                GostDto chainResult = GostUtil.UpdateHopNodeChain(nodeId, serviceName, nextHopAddr, nextHopProtocol);
+                if (chainResult.getMsg().contains(GOST_NOT_FOUND_MSG)) {
+                    chainResult = GostUtil.AddHopNodeChain(nodeId, serviceName, nextHopAddr, nextHopProtocol);
+                }
+                if (!isGostOperationSuccess(chainResult)) {
+                    log.error("更新中转节点{}的chain失败: {}", nodeId, chainResult.getMsg());
+                    return R.err("更新中转节点chain失败: " + chainResult.getMsg());
+                }
+                log.info("已更新中转节点{}的chain，下一跳: {}, 协议: {}", nodeId, nextHopAddr, nextHopProtocol);
+
+                // ✅ 2. 更新relay服务
+                String chainName = serviceName + "_chains";
+                GostDto serviceResult = GostUtil.UpdateRelayServiceWithChain(nodeId, serviceName, port, relayProtocol, chainName);
+                if (serviceResult.getMsg().contains(GOST_NOT_FOUND_MSG)) {
+                    serviceResult = GostUtil.AddRelayServiceWithChain(nodeId, serviceName, port, relayProtocol, chainName);
                 }
 
-                if (!isGostOperationSuccess(result)) {
-                    log.error("更新中转节点{}的relay服务失败: {}", nodeId, result.getMsg());
-                    return R.err("更新中转节点relay服务失败: " + result.getMsg());
+                if (!isGostOperationSuccess(serviceResult)) {
+                    log.error("更新中转节点{}的relay服务失败: {}", nodeId, serviceResult.getMsg());
+                    return R.err("更新中转节点relay服务失败: " + serviceResult.getMsg());
                 }
 
-                log.info("已更新中转节点{}的relay服务，端口: {}, 协议: {}, 下一跳: {}", nodeId, port, relayProtocol, nextHopAddr);
+                log.info("已更新中转节点{}的relay服务，端口: {}, 协议: {}, chain: {}", nodeId, port, relayProtocol, chainName);
             }
 
             return R.ok();
@@ -1690,7 +1719,7 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
     }
 
     /**
-     * 删除所有中转节点的relay服务
+     * 删除所有中转节点的relay服务 + chain
      */
     private void deleteHopNodeRelayServices(String serviceName, String hopNodesJson) {
         try {
@@ -1704,8 +1733,13 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
                 Long nodeId = hopNode.getLong("nodeId");
 
                 if (nodeId != null) {
+                    // ✅ 1. 删除relay服务
                     GostUtil.DeleteRelayService(nodeId, serviceName);
                     log.info("已删除中转节点{}的relay服务", nodeId);
+
+                    // ✅ 2. 删除chain
+                    GostUtil.DeleteHopNodeChain(nodeId, serviceName);
+                    log.info("已删除中转节点{}的chain", nodeId);
                 }
             }
         } catch (Exception e) {

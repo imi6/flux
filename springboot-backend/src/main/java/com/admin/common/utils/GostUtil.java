@@ -175,6 +175,16 @@ public class GostUtil {
      * @param nextHopProtocol 下一跳协议
      * @return 操作结果
      */
+    /**
+     * 添加Relay服务（使用forwarder方式，用于出口节点）
+     * @param node_id 节点ID
+     * @param name 服务名称
+     * @param port 监听端口
+     * @param protocol 协议类型
+     * @param nextHopAddr 下一跳地址（格式：IP:端口），如果为null则作为纯relay代理
+     * @param nextHopProtocol 下一跳协议
+     * @return 操作结果
+     */
     public static GostDto AddRelayService(Long node_id, String name, Integer port, String protocol, String nextHopAddr, String nextHopProtocol) {
         JSONObject service = new JSONObject();
         service.put("name", name + "_relay");
@@ -217,7 +227,37 @@ public class GostUtil {
     }
 
     /**
-     * 更新Relay服务
+     * 添加Relay服务（使用chain方式，用于中转节点）
+     * @param node_id 节点ID
+     * @param name 服务名称
+     * @param port 监听端口
+     * @param protocol 监听协议
+     * @param chainName chain名称
+     * @return 操作结果
+     */
+    public static GostDto AddRelayServiceWithChain(Long node_id, String name, Integer port, String protocol, String chainName) {
+        JSONObject service = new JSONObject();
+        service.put("name", name + "_relay");
+        service.put("addr", ":" + port);
+
+        // 配置监听器
+        JSONObject listener = new JSONObject();
+        listener.put("type", protocol);
+        service.put("listener", listener);
+
+        // 配置处理器 - relay类型 + chain
+        JSONObject handler = new JSONObject();
+        handler.put("type", "relay");
+        handler.put("chain", chainName);  // ✅ 添加chain配置
+        service.put("handler", handler);
+
+        JSONArray services = new JSONArray();
+        services.add(service);
+        return WebSocketServer.send_msg(node_id, services, "AddService");
+    }
+
+    /**
+     * 更新Relay服务（使用forwarder方式）
      */
     public static GostDto UpdateRelayService(Long node_id, String name, Integer port, String protocol, String nextHopAddr, String nextHopProtocol) {
         JSONObject service = new JSONObject();
@@ -261,6 +301,30 @@ public class GostUtil {
     }
 
     /**
+     * 更新Relay服务（使用chain方式）
+     */
+    public static GostDto UpdateRelayServiceWithChain(Long node_id, String name, Integer port, String protocol, String chainName) {
+        JSONObject service = new JSONObject();
+        service.put("name", name + "_relay");
+        service.put("addr", ":" + port);
+
+        // 配置监听器
+        JSONObject listener = new JSONObject();
+        listener.put("type", protocol);
+        service.put("listener", listener);
+
+        // 配置处理器 - relay类型 + chain
+        JSONObject handler = new JSONObject();
+        handler.put("type", "relay");
+        handler.put("chain", chainName);
+        service.put("handler", handler);
+
+        JSONArray services = new JSONArray();
+        services.add(service);
+        return WebSocketServer.send_msg(node_id, services, "UpdateService");
+    }
+
+    /**
      * 删除Relay服务
      */
     public static GostDto DeleteRelayService(Long node_id, String name) {
@@ -269,6 +333,108 @@ public class GostUtil {
         JSONObject req = new JSONObject();
         req.put("services", data);
         return WebSocketServer.send_msg(node_id, req, "DeleteService");
+    }
+
+    /**
+     * 为中转节点添加Chain（单跳，指向下一个节点）
+     * @param node_id 节点ID
+     * @param name chain名称
+     * @param nextHopAddr 下一跳地址
+     * @param protocol 协议类型
+     * @return 操作结果
+     */
+    public static GostDto AddHopNodeChain(Long node_id, String name, String nextHopAddr, String protocol) {
+        if (protocol == null || protocol.isEmpty()) {
+            protocol = "tcp";
+        }
+
+        // 创建dialer
+        JSONObject dialer = new JSONObject();
+        dialer.put("type", protocol);
+
+        // 创建connector
+        JSONObject connector = new JSONObject();
+        connector.put("type", "relay");
+
+        // 创建node
+        JSONObject node = new JSONObject();
+        node.put("name", "next-hop");
+        node.put("addr", nextHopAddr);
+        node.put("connector", connector);
+        node.put("dialer", dialer);
+
+        // 创建hop
+        JSONArray nodes = new JSONArray();
+        nodes.add(node);
+
+        JSONObject hop = new JSONObject();
+        hop.put("name", "hop-" + name);
+        hop.put("nodes", nodes);
+
+        JSONArray hops = new JSONArray();
+        hops.add(hop);
+
+        // 构建chain数据
+        JSONObject data = new JSONObject();
+        data.put("name", name + "_chains");
+        data.put("hops", hops);
+
+        return WebSocketServer.send_msg(node_id, data, "AddChains");
+    }
+
+    /**
+     * 为中转节点更新Chain
+     */
+    public static GostDto UpdateHopNodeChain(Long node_id, String name, String nextHopAddr, String protocol) {
+        if (protocol == null || protocol.isEmpty()) {
+            protocol = "tcp";
+        }
+
+        // 创建dialer
+        JSONObject dialer = new JSONObject();
+        dialer.put("type", protocol);
+
+        // 创建connector
+        JSONObject connector = new JSONObject();
+        connector.put("type", "relay");
+
+        // 创建node
+        JSONObject node = new JSONObject();
+        node.put("name", "next-hop");
+        node.put("addr", nextHopAddr);
+        node.put("connector", connector);
+        node.put("dialer", dialer);
+
+        // 创建hop
+        JSONArray nodes = new JSONArray();
+        nodes.add(node);
+
+        JSONObject hop = new JSONObject();
+        hop.put("name", "hop-" + name);
+        hop.put("nodes", nodes);
+
+        JSONArray hops = new JSONArray();
+        hops.add(hop);
+
+        // 构建chain数据
+        JSONObject data = new JSONObject();
+        data.put("name", name + "_chains");
+        data.put("hops", hops);
+
+        JSONObject req = new JSONObject();
+        req.put("chain", name + "_chains");
+        req.put("data", data);
+
+        return WebSocketServer.send_msg(node_id, req, "UpdateChains");
+    }
+
+    /**
+     * 删除中转节点的Chain
+     */
+    public static GostDto DeleteHopNodeChain(Long node_id, String name) {
+        JSONObject req = new JSONObject();
+        req.put("chain", name + "_chains");
+        return WebSocketServer.send_msg(node_id, req, "DeleteChains");
     }
 
     /**
