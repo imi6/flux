@@ -71,24 +71,23 @@ public class CheckGostConfigAsync {
                         String userTunnelId = serviceIds[2];
                         String type = serviceIds[3];
 
-                        if (Objects.equals(type, "tcp")) { // 只处理TCP，避免重复处理
-                            Forward forward = forwardService.getById(forwardId);
-                            if (forward == null) {
+                        // 检查转发是否存在
+                        Forward forward = forwardService.getById(forwardId);
+
+                        if (forward == null) {
+                            // 转发不存在，删除孤立的服务
+                            if (Objects.equals(type, "tcp")) {
+                                // 主服务（入口节点）或中转节点relay服务
                                 log.info("删除孤立的服务: {} (节点: {})", service.getName(), node.getId());
                                 GostDto gostDto = GostUtil.DeleteService(node.getId(), forwardId + "_" + userId + "_" + userTunnelId);
-                                System.out.println(gostDto);
+                                log.info("删除结果: {}", gostDto.getMsg());
+                            } else if (Objects.equals(type, "tls")) {
+                                // 出口节点remote服务
+                                log.info("删除孤立的remote服务: {} (节点: {})", service.getName(), node.getId());
+                                GostDto gostDto = GostUtil.DeleteRemoteService(node.getId(), forwardId+"_"+userId+"_"+userTunnelId);
+                                log.info("删除结果: {}", gostDto.getMsg());
                             }
                         }
-
-
-                        if (Objects.equals(type, "tls")) {
-                            Forward forward = forwardService.getById(forwardId);
-                            if (forward == null) {
-                                log.info("删除孤立的服务: {} (节点: {})", service.getName(), node.getId());
-                                GostUtil.DeleteRemoteService(node.getId(), forwardId+"_"+userId+"_"+userTunnelId);
-                            }
-                        }
-
                     }
                 }
 
