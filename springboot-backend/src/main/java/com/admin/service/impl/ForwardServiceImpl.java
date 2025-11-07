@@ -115,6 +115,16 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
             return gostResult;
         }
 
+        // ✅ 8. 如果是多级隧道转发，需要更新hop_nodes_config到数据库
+        if (tunnel.getType() == TUNNEL_TYPE_MULTI_HOP_TUNNEL && forward.getHopNodesConfig() != null) {
+            boolean updateResult = this.updateById(forward);
+            if (!updateResult) {
+                log.warn("更新转发{}的hop_nodes_config失败", forward.getId());
+            } else {
+                log.info("已保存转发{}的hop_nodes_config到数据库", forward.getId());
+            }
+        }
+
         return R.ok();
     }
 
