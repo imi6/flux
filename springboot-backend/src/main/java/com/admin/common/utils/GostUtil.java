@@ -64,7 +64,7 @@ public class GostUtil {
     public static GostDto AddRemoteService(Long node_id, String name, Integer out_port, String remoteAddr,  String protocol, String strategy, String interfaceName) {
         JSONObject data = new JSONObject();
         data.put("name", name + "_tls");
-        data.put("addr", ":" + out_port);
+        data.put("addr", "[::]:" + out_port);  // ✅ 修改为同时监听IPv4和IPv6
 
         if (StringUtils.isNotBlank(interfaceName)) {
             JSONObject metadata = new JSONObject();
@@ -112,7 +112,7 @@ public class GostUtil {
     public static GostDto UpdateRemoteService(Long node_id, String name, Integer out_port, String remoteAddr,String protocol, String strategy, String interfaceName) {
         JSONObject data = new JSONObject();
         data.put("name", name + "_tls");
-        data.put("addr", ":" + out_port);
+        data.put("addr", "[::]:" + out_port);  // ✅ 修改为同时监听IPv4和IPv6
 
         if (StringUtils.isNotBlank(interfaceName)) {
             JSONObject metadata = new JSONObject();
@@ -188,7 +188,7 @@ public class GostUtil {
     public static GostDto AddRelayService(Long node_id, String name, Integer port, String protocol, String nextHopAddr, String nextHopProtocol) {
         JSONObject service = new JSONObject();
         service.put("name", name + "_relay");
-        service.put("addr", ":" + port);
+        service.put("addr", "[::]:" + port);  // ✅ 修改为同时监听IPv4和IPv6
 
         // 配置监听器
         JSONObject listener = new JSONObject();
@@ -270,7 +270,7 @@ public class GostUtil {
         // ✅ 1. TCP服务
         JSONObject tcpService = new JSONObject();
         tcpService.put("name", name + "_tcp");
-        tcpService.put("addr", ":" + port);
+        tcpService.put("addr", "[::]:" + port);  // ✅ 修改为同时监听IPv4和IPv6
 
         JSONObject tcpListener = new JSONObject();
         tcpListener.put("type", "tcp");
@@ -286,7 +286,7 @@ public class GostUtil {
         // ✅ 2. UDP服务
         JSONObject udpService = new JSONObject();
         udpService.put("name", name + "_udp");
-        udpService.put("addr", ":" + port);
+        udpService.put("addr", "[::]:" + port);  // ✅ 修改为同时监听IPv4和IPv6
 
         JSONObject udpListener = new JSONObject();
         udpListener.put("type", "udp");
@@ -311,7 +311,7 @@ public class GostUtil {
     public static GostDto UpdateRelayService(Long node_id, String name, Integer port, String protocol, String nextHopAddr, String nextHopProtocol) {
         JSONObject service = new JSONObject();
         service.put("name", name + "_relay");
-        service.put("addr", ":" + port);
+        service.put("addr", "[::]:" + port);  // ✅ 修改为同时监听IPv4和IPv6
 
         // 配置监听器
         JSONObject listener = new JSONObject();
@@ -355,7 +355,7 @@ public class GostUtil {
     public static GostDto UpdateRelayServiceWithChain(Long node_id, String name, Integer port, String protocol, String chainName) {
         JSONObject service = new JSONObject();
         service.put("name", name + "_relay");
-        service.put("addr", ":" + port);
+        service.put("addr", "[::]:" + port);  // ✅ 修改为同时监听IPv4和IPv6
 
         // 配置监听器
         JSONObject listener = new JSONObject();
@@ -382,7 +382,7 @@ public class GostUtil {
         // ✅ 1. TCP服务
         JSONObject tcpService = new JSONObject();
         tcpService.put("name", name + "_tcp");
-        tcpService.put("addr", ":" + port);
+        tcpService.put("addr", "[::]:" + port);  // ✅ 修改为同时监听IPv4和IPv6
 
         JSONObject tcpListener = new JSONObject();
         tcpListener.put("type", "tcp");
@@ -398,7 +398,7 @@ public class GostUtil {
         // ✅ 2. UDP服务
         JSONObject udpService = new JSONObject();
         udpService.put("name", name + "_udp");
-        udpService.put("addr", ":" + port);
+        udpService.put("addr", "[::]:" + port);  // ✅ 修改为同时监听IPv4和IPv6
 
         JSONObject udpListener = new JSONObject();
         udpListener.put("type", "udp");
