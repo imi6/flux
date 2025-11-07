@@ -56,6 +56,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     
     /** 隧道类型常量 */
     private static final int TUNNEL_TYPE_TUNNEL_FORWARD = 2; // 隧道转发类型
+    private static final int TUNNEL_TYPE_MULTI_HOP_TUNNEL = 4; // 多级隧道转发类型
     
     /** 成功响应消息 */
     private static final String SUCCESS_CREATE_MSG = "用户创建成功";
