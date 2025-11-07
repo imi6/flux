@@ -170,9 +170,11 @@ public class GostUtil {
      * @param name 服务名称
      * @param port 监听端口
      * @param protocol 协议类型
+     * @param nextHopAddr 下一跳地址（格式：IP:端口），如果为null则作为纯relay代理
+     * @param nextHopProtocol 下一跳协议
      * @return 操作结果
      */
-    public static GostDto AddRelayService(Long node_id, String name, Integer port, String protocol) {
+    public static GostDto AddRelayService(Long node_id, String name, Integer port, String protocol, String nextHopAddr, String nextHopProtocol) {
         JSONObject service = new JSONObject();
         service.put("name", name + "_relay");
         service.put("addr", ":" + port);
@@ -186,6 +188,27 @@ public class GostUtil {
         JSONObject handler = new JSONObject();
         handler.put("type", "relay");
         service.put("handler", handler);
+
+        // 如果指定了下一跳地址，配置forwarder
+        if (StringUtils.isNotBlank(nextHopAddr)) {
+            JSONObject forwarder = new JSONObject();
+            JSONArray nodes = new JSONArray();
+
+            JSONObject node = new JSONObject();
+            node.put("name", "next_hop");
+            node.put("addr", nextHopAddr);
+            nodes.add(node);
+
+            forwarder.put("nodes", nodes);
+
+            JSONObject selector = new JSONObject();
+            selector.put("strategy", "fifo");
+            selector.put("maxFails", 1);
+            selector.put("failTimeout", "600s");
+            forwarder.put("selector", selector);
+
+            service.put("forwarder", forwarder);
+        }
 
         JSONArray services = new JSONArray();
         services.add(service);
@@ -195,7 +218,7 @@ public class GostUtil {
     /**
      * 更新Relay服务
      */
-    public static GostDto UpdateRelayService(Long node_id, String name, Integer port, String protocol) {
+    public static GostDto UpdateRelayService(Long node_id, String name, Integer port, String protocol, String nextHopAddr, String nextHopProtocol) {
         JSONObject service = new JSONObject();
         service.put("name", name + "_relay");
         service.put("addr", ":" + port);
@@ -209,6 +232,27 @@ public class GostUtil {
         JSONObject handler = new JSONObject();
         handler.put("type", "relay");
         service.put("handler", handler);
+
+        // 如果指定了下一跳地址，配置forwarder
+        if (StringUtils.isNotBlank(nextHopAddr)) {
+            JSONObject forwarder = new JSONObject();
+            JSONArray nodes = new JSONArray();
+
+            JSONObject node = new JSONObject();
+            node.put("name", "next_hop");
+            node.put("addr", nextHopAddr);
+            nodes.add(node);
+
+            forwarder.put("nodes", nodes);
+
+            JSONObject selector = new JSONObject();
+            selector.put("strategy", "fifo");
+            selector.put("maxFails", 1);
+            selector.put("failTimeout", "600s");
+            forwarder.put("selector", selector);
+
+            service.put("forwarder", forwarder);
+        }
 
         JSONArray services = new JSONArray();
         services.add(service);
