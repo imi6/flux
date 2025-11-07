@@ -77,9 +77,9 @@ public class GostUtil {
         handler.put("type", "relay");
         data.put("handler", handler);
 
-        // listener固定使用tcp类型
+        // listener类型使用传入的protocol参数（与中转节点的dialer类型匹配）
         JSONObject listener = new JSONObject();
-        listener.put("type", "tcp");
+        listener.put("type", protocol);  // ✅ 使用protocol参数，而不是固定的"tcp"
         data.put("listener", listener);
         JSONObject forwarder = new JSONObject();
         JSONArray nodes = new JSONArray();
@@ -125,9 +125,9 @@ public class GostUtil {
         handler.put("type", "relay");
         data.put("handler", handler);
 
-        // listener固定使用tcp类型
+        // listener类型使用传入的protocol参数（与中转节点的dialer类型匹配）
         JSONObject listener = new JSONObject();
-        listener.put("type", "tcp");
+        listener.put("type", protocol);  // ✅ 使用protocol参数，而不是固定的"tcp"
         data.put("listener", listener);
         JSONObject forwarder = new JSONObject();
         JSONArray nodes = new JSONArray();
