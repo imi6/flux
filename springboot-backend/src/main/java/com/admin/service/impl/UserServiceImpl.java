@@ -14,6 +14,8 @@ import com.admin.mapper.ForwardMapper;
 import com.admin.mapper.UserMapper;
 import com.admin.mapper.UserTunnelMapper;
 import com.admin.service.*;
+import com.alibaba.fastjson.JSONArray;
+import com.alibaba.fastjson.JSONObject;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.Data;
@@ -557,7 +559,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
     /**
      * 删除转发对应的Gost服务
-     * 
+     *
      * @param forward 转发对象
      * @param userId 用户ID
      */
@@ -581,11 +583,16 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         if (tunnel.getType() == TUNNEL_TYPE_TUNNEL_FORWARD) {
             deleteGostTunnelForwardServices(tunnel, serviceName, inNode);
         }
+
+        // ✅ 如果是多级隧道转发，还需要删除多级链、中转节点relay服务和出口远程服务
+        if (tunnel.getType() == TUNNEL_TYPE_MULTI_HOP_TUNNEL) {
+            deleteGostMultiHopTunnelServices(tunnel, serviceName, inNode);
+        }
     }
 
     /**
      * 删除隧道转发相关的Gost服务
-     * 
+     *
      * @param tunnel 隧道对象
      * @param serviceName 服务名称
      * @param inNode 入口节点
@@ -594,6 +601,44 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         Node outNode = nodeService.getNodeById(tunnel.getOutNodeId());
         if (outNode != null) {
             GostUtil.DeleteChains(inNode.getId(), serviceName);
+            GostUtil.DeleteRemoteService(outNode.getId(), serviceName);
+        }
+    }
+
+    /**
+     * 删除多级隧道转发相关的Gost服务
+     *
+     * @param tunnel 隧道对象
+     * @param serviceName 服务名称
+     * @param inNode 入口节点
+     */
+    private void deleteGostMultiHopTunnelServices(Tunnel tunnel, String serviceName, Node inNode) {
+        // 删除多级链
+        GostUtil.DeleteMultiHopChains(inNode.getId(), serviceName);
+
+        // 删除中转节点的relay服务
+        try {
+            String hopNodesJson = tunnel.getHopNodes();
+            if (StrUtil.isNotBlank(hopNodesJson)) {
+                JSONArray hopNodesArray = JSONArray.parseArray(hopNodesJson);
+                if (hopNodesArray != null && !hopNodesArray.isEmpty()) {
+                    for (int i = 0; i < hopNodesArray.size(); i++) {
+                        JSONObject hopNode = hopNodesArray.getJSONObject(i);
+                        Long nodeId = hopNode.getLong("nodeId");
+                        if (nodeId != null) {
+                            GostUtil.DeleteRelayServices(nodeId, serviceName);
+                            GostUtil.DeleteHopNodeChain(nodeId, serviceName);
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.error("删除中转节点relay服务失败: {}", e.getMessage(), e);
+        }
+
+        // 删除出口节点的remote服务
+        Node outNode = nodeService.getNodeById(tunnel.getOutNodeId());
+        if (outNode != null) {
             GostUtil.DeleteRemoteService(outNode.getId(), serviceName);
         }
     }

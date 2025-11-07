@@ -1341,6 +1341,35 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
             }
         }
 
+        // ✅ 如果原隧道是多级隧道转发类型，需要删除多级链、中转节点relay服务和出口远程服务
+        if (oldTunnel.getType() == TUNNEL_TYPE_MULTI_HOP_TUNNEL) {
+            // 删除多级链
+            if (!oldNodeInfo.isHasError() && oldNodeInfo.getInNode() != null) {
+                GostDto multiHopChainResult = GostUtil.DeleteMultiHopChains(oldNodeInfo.getInNode().getId(), serviceName);
+                if (!isGostOperationSuccess(multiHopChainResult)) {
+                    log.info("删除多级链失败: {}", multiHopChainResult.getMsg());
+                }
+            }
+
+            // 删除中转节点的relay服务
+            deleteHopNodeRelayServices(serviceName, oldTunnel.getHopNodes());
+
+            // 删除出口节点的remote服务
+            Node outNode = null;
+            if (!oldNodeInfo.isHasError()) {
+                outNode = oldNodeInfo.getOutNode();
+            } else {
+                outNode = nodeService.getNodeById(oldTunnel.getOutNodeId());
+            }
+
+            if (outNode != null) {
+                GostDto remoteResult = GostUtil.DeleteRemoteService(outNode.getId(), serviceName);
+                if (!isGostOperationSuccess(remoteResult)) {
+                    log.info("删除出口远程服务失败: {}", remoteResult.getMsg());
+                }
+            }
+        }
+
         return R.ok();
     }
 
@@ -1748,8 +1777,11 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
      */
     private void deleteHopNodeRelayServices(String serviceName, String hopNodesJson) {
         try {
+            log.info("开始删除中转节点relay服务，serviceName: {}, hopNodesJson: {}", serviceName, hopNodesJson);
+
             JSONArray hopNodesArray = JSONArray.parseArray(hopNodesJson);
             if (hopNodesArray == null || hopNodesArray.isEmpty()) {
+                log.warn("hopNodesArray为空，无法删除中转节点relay服务");
                 return;
             }
 
@@ -1758,13 +1790,15 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
                 Long nodeId = hopNode.getLong("nodeId");
 
                 if (nodeId != null) {
+                    log.info("删除中转节点{}的relay服务: {}_tcp, {}_udp", nodeId, serviceName, serviceName);
+
                     // ✅ 1. 删除relay服务（TCP和UDP）
-                    GostUtil.DeleteRelayServices(nodeId, serviceName);
-                    log.info("已删除中转节点{}的relay服务(TCP+UDP)", nodeId);
+                    GostDto deleteResult = GostUtil.DeleteRelayServices(nodeId, serviceName);
+                    log.info("删除中转节点{}的relay服务结果: {}", nodeId, deleteResult.getMsg());
 
                     // ✅ 2. 删除chain
-                    GostUtil.DeleteHopNodeChain(nodeId, serviceName);
-                    log.info("已删除中转节点{}的chain", nodeId);
+                    GostDto chainResult = GostUtil.DeleteHopNodeChain(nodeId, serviceName);
+                    log.info("删除中转节点{}的chain结果: {}", nodeId, chainResult.getMsg());
                 }
             }
         } catch (Exception e) {
