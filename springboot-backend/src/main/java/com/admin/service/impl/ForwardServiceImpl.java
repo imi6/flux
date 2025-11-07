@@ -1911,7 +1911,7 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
     }
 
     /**
-     * 获取指定节点上所有已被占用的端口（包括入口和出口端口）
+     * 获取指定节点上所有已被占用的端口（包括入口、出口和中转节点端口）
      *
      * @param nodeId           节点ID
      * @param excludeForwardId 要排除的转发ID
@@ -1957,6 +1957,36 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
                 if (forward.getOutPort() != null) {
                     usedPorts.add(forward.getOutPort());
                 }
+            }
+        }
+
+        // ✅ 3. 收集该节点作为中转节点时占用的端口
+        List<Tunnel> allTunnels = tunnelService.list(new QueryWrapper<Tunnel>().eq("type", TUNNEL_TYPE_MULTI_HOP_TUNNEL));
+        for (Tunnel tunnel : allTunnels) {
+            String hopNodesJson = tunnel.getHopNodes();
+            if (StrUtil.isBlank(hopNodesJson)) {
+                continue;
+            }
+
+            try {
+                JSONArray hopNodesArray = JSONArray.parseArray(hopNodesJson);
+                if (hopNodesArray == null || hopNodesArray.isEmpty()) {
+                    continue;
+                }
+
+                // 遍历所有中转节点
+                for (int i = 0; i < hopNodesArray.size(); i++) {
+                    JSONObject hopNode = hopNodesArray.getJSONObject(i);
+                    Long hopNodeId = hopNode.getLong("nodeId");
+                    Integer hopPort = hopNode.getInteger("port");
+
+                    // 如果是当前节点，且端口已分配（不为0或null）
+                    if (nodeId.equals(hopNodeId) && hopPort != null && hopPort != 0) {
+                        usedPorts.add(hopPort);
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("解析隧道{}的hopNodes配置失败: {}", tunnel.getId(), e.getMessage());
             }
         }
 
