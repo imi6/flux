@@ -1130,8 +1130,8 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
             // ✅ 获取处理后的hopNodes配置（包含为当前转发分配的独立端口）
             String processedHopNodesJson = (String) multiHopChainResult.getData();
 
-            // ❌ 不再更新tunnel表，因为每个转发使用独立的端口
-            // 如果更新tunnel表，第二个转发会复用第一个转发的端口，导致冲突
+            // ✅ 保存到forward表的hop_nodes_config字段，用于端口冲突检测
+            forward.setHopNodesConfig(processedHopNodesJson);
             log.info("为转发{}分配的中转节点端口配置: {}", forward.getName(), processedHopNodesJson);
 
             // 为每个中转节点创建relay服务（需要传入出口节点信息）
@@ -1224,7 +1224,8 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
             // ✅ 获取处理后的hopNodes配置
             String processedHopNodesJson = (String) multiHopChainResult.getData();
 
-            // ❌ 不再更新tunnel表，因为每个转发使用独立的端口
+            // ✅ 更新forward表的hop_nodes_config字段
+            forward.setHopNodesConfig(processedHopNodesJson);
             log.info("为转发{}更新的中转节点端口配置: {}", forward.getName(), processedHopNodesJson);
 
             // 更新中转节点的relay服务（需要传入出口节点信息）
@@ -2023,12 +2024,17 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
             }
         }
 
-        // ✅ 3. 收集该节点作为中转节点时占用的端口
-        List<Tunnel> allTunnels = tunnelService.list(new QueryWrapper<Tunnel>().eq("type", TUNNEL_TYPE_MULTI_HOP_TUNNEL));
-        log.info("检查节点{}作为中转节点的端口占用，共{}个多级隧道", nodeId, allTunnels.size());
+        // ✅ 3. 收集该节点作为中转节点时占用的端口（从forward表的hop_nodes_config读取）
+        QueryWrapper<Forward> hopQueryWrapper = new QueryWrapper<Forward>().isNotNull("hop_nodes_config");
+        if (excludeForwardId != null) {
+            hopQueryWrapper.ne("id", excludeForwardId);
+        }
 
-        for (Tunnel tunnel : allTunnels) {
-            String hopNodesJson = tunnel.getHopNodes();
+        List<Forward> forwardsWithHopNodes = this.list(hopQueryWrapper);
+        log.info("检查节点{}作为中转节点的端口占用，共{}个使用多级隧道的转发", nodeId, forwardsWithHopNodes.size());
+
+        for (Forward forward : forwardsWithHopNodes) {
+            String hopNodesJson = forward.getHopNodesConfig();
             if (StrUtil.isBlank(hopNodesJson)) {
                 continue;
             }
@@ -2047,12 +2053,12 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
 
                     // 如果是当前节点，且端口已分配（不为0或null）
                     if (nodeId.equals(hopNodeId) && hopPort != null && hopPort != 0) {
-                        log.info("隧道{}的中转节点{}占用端口: {}", tunnel.getId(), hopNodeId, hopPort);
+                        log.info("转发{}的中转节点{}占用端口: {}", forward.getId(), hopNodeId, hopPort);
                         usedPorts.add(hopPort);
                     }
                 }
             } catch (Exception e) {
-                log.warn("解析隧道{}的hopNodes配置失败: {}", tunnel.getId(), e.getMessage());
+                log.warn("解析转发{}的hopNodesConfig配置失败: {}", forward.getId(), e.getMessage());
             }
         }
 

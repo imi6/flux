@@ -42,4 +42,10 @@ public class Forward extends BaseEntity{
 
     private Integer inx;
 
+    /**
+     * 中转节点配置（仅用于多级隧道转发）
+     * 存储该转发实际使用的中转节点端口配置
+     */
+    private String hopNodesConfig;
+
 }
