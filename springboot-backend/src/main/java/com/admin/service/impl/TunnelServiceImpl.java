@@ -712,11 +712,26 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
         } else if (tunnel.getType() == TUNNEL_TYPE_MULTI_HOP_TUNNEL) {
             // 多级隧道转发：入口 -> 中转节点 -> 出口 -> 外网
             try {
-                // 直接从tunnel表读取hopNodes配置
-                // 注意：创建Forward时已经将处理后的配置（包含分配的端口）保存到tunnel表
-                String hopNodesJson = tunnel.getHopNodes();
+                // ✅ 优先从该隧道的任意一个转发的hop_nodes_config读取实际分配的端口
+                String hopNodesJson = null;
 
-                log.info("隧道{}的hopNodes配置: " + hopNodesJson, tunnel.getId());
+                // 查询该隧道下的任意一个转发，获取实际的端口配置
+                QueryWrapper<Forward> forwardQuery = new QueryWrapper<>();
+                forwardQuery.eq("tunnel_id", tunnel.getId());
+                forwardQuery.isNotNull("hop_nodes_config");
+                forwardQuery.last("LIMIT 1");
+                Forward sampleForward = forwardService.getOne(forwardQuery);
+
+                if (sampleForward != null && sampleForward.getHopNodesConfig() != null) {
+                    hopNodesJson = sampleForward.getHopNodesConfig();
+                    log.info("隧道{}诊断：使用转发{}的hop_nodes_config（包含实际端口）", tunnel.getId(), sampleForward.getId());
+                } else {
+                    // 如果没有转发或hop_nodes_config为空，使用tunnel.hopNodes（端口可能为0）
+                    hopNodesJson = tunnel.getHopNodes();
+                    log.warn("隧道{}诊断：未找到包含hop_nodes_config的转发，使用tunnel.hopNodes（端口可能为0）", tunnel.getId());
+                }
+
+                log.info("隧道{}的hopNodes配置: {}", tunnel.getId(), hopNodesJson);
 
                 if (hopNodesJson == null || hopNodesJson.trim().isEmpty()) {
                     log.error("隧道{}的hopNodes配置为空", tunnel.getId());
@@ -724,7 +739,7 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
                 }
 
                 com.alibaba.fastjson.JSONArray hopNodesArray = com.alibaba.fastjson.JSONArray.parseArray(hopNodesJson);
-                log.info("解析后的hopNodesArray大小: " + (hopNodesArray != null ? hopNodesArray.size() : "null"));
+                log.info("解析后的hopNodesArray大小: {}", (hopNodesArray != null ? hopNodesArray.size() : "null"));
 
                 if (hopNodesArray != null && !hopNodesArray.isEmpty()) {
                     // 1. 入口 -> 中转节点
@@ -733,15 +748,14 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
                         String hopIp = hop.getString("nodeIp");
                         Integer hopPort = hop.getInteger("port");
 
-                        log.info("中转节点" + (i + 1) + " - IP: " + hopIp + ", Port: " + hopPort);
+                        log.info("中转节点{} - IP: {}, Port: {}", (i + 1), hopIp, hopPort);
 
-                        // ✅ 修复：即使hopPort为0或null，也继续诊断
-                        // TCP ping会自然失败并返回错误信息，这样用户可以看到诊断结果
+                        // 如果端口为null，设置默认值避免NullPointerException
                         if (hopPort == null) {
-                            hopPort = 0;  // 设置默认值，避免NullPointerException
+                            hopPort = 0;
                         }
 
-                        log.info("开始诊断: 入口->中转节点" + (i + 1));
+                        log.info("开始诊断: 入口->中转节点{}", (i + 1));
                         DiagnosisResult inToHopResult = performTcpPingDiagnosisWithConnectionCheck(
                             inNode,
                             hopIp,
@@ -749,7 +763,7 @@ public class TunnelServiceImpl extends ServiceImpl<TunnelMapper, Tunnel> impleme
                             "入口->中转节点" + (i + 1)
                         );
                         results.add(inToHopResult);
-                        log.info("诊断结果已添加: " + inToHopResult);
+                        log.info("诊断结果已添加: {}", inToHopResult);
                     }
 
                     // 2. 中转节点 -> 出口
