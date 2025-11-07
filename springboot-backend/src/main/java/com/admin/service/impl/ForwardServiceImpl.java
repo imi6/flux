@@ -1613,15 +1613,15 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
                 }
                 log.info("已在中转节点{}创建chain，下一跳: {}, 协议: {}", nodeId, nextHopAddr, nextHopProtocol);
 
-                // ✅ 2. 再创建relay服务（使用chain）
+                // ✅ 2. 再创建relay服务（TCP和UDP，使用chain）
                 String chainName = serviceName + "_chains";
-                GostDto serviceResult = GostUtil.AddRelayServiceWithChain(nodeId, serviceName, port, relayProtocol, chainName);
+                GostDto serviceResult = GostUtil.AddRelayServicesWithChain(nodeId, serviceName, port, chainName);
                 if (!isGostOperationSuccess(serviceResult)) {
                     log.error("创建中转节点{}的relay服务失败: {}", nodeId, serviceResult.getMsg());
                     return R.err("创建中转节点relay服务失败: " + serviceResult.getMsg());
                 }
 
-                log.info("已在中转节点{}创建relay服务，端口: {}, 协议: {}, chain: {}", nodeId, port, relayProtocol, chainName);
+                log.info("已在中转节点{}创建relay服务(TCP+UDP)，端口: {}, chain: {}", nodeId, port, chainName);
             }
 
             return R.ok();
@@ -1696,11 +1696,11 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
                 }
                 log.info("已更新中转节点{}的chain，下一跳: {}, 协议: {}", nodeId, nextHopAddr, nextHopProtocol);
 
-                // ✅ 2. 更新relay服务
+                // ✅ 2. 更新relay服务（TCP和UDP）
                 String chainName = serviceName + "_chains";
-                GostDto serviceResult = GostUtil.UpdateRelayServiceWithChain(nodeId, serviceName, port, relayProtocol, chainName);
+                GostDto serviceResult = GostUtil.UpdateRelayServicesWithChain(nodeId, serviceName, port, chainName);
                 if (serviceResult.getMsg().contains(GOST_NOT_FOUND_MSG)) {
-                    serviceResult = GostUtil.AddRelayServiceWithChain(nodeId, serviceName, port, relayProtocol, chainName);
+                    serviceResult = GostUtil.AddRelayServicesWithChain(nodeId, serviceName, port, chainName);
                 }
 
                 if (!isGostOperationSuccess(serviceResult)) {
@@ -1708,7 +1708,7 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
                     return R.err("更新中转节点relay服务失败: " + serviceResult.getMsg());
                 }
 
-                log.info("已更新中转节点{}的relay服务，端口: {}, 协议: {}, chain: {}", nodeId, port, relayProtocol, chainName);
+                log.info("已更新中转节点{}的relay服务(TCP+UDP)，端口: {}, chain: {}", nodeId, port, chainName);
             }
 
             return R.ok();
@@ -1733,9 +1733,9 @@ public class ForwardServiceImpl extends ServiceImpl<ForwardMapper, Forward> impl
                 Long nodeId = hopNode.getLong("nodeId");
 
                 if (nodeId != null) {
-                    // ✅ 1. 删除relay服务
-                    GostUtil.DeleteRelayService(nodeId, serviceName);
-                    log.info("已删除中转节点{}的relay服务", nodeId);
+                    // ✅ 1. 删除relay服务（TCP和UDP）
+                    GostUtil.DeleteRelayServices(nodeId, serviceName);
+                    log.info("已删除中转节点{}的relay服务(TCP+UDP)", nodeId);
 
                     // ✅ 2. 删除chain
                     GostUtil.DeleteHopNodeChain(nodeId, serviceName);

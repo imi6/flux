@@ -227,7 +227,7 @@ public class GostUtil {
     }
 
     /**
-     * 添加Relay服务（使用chain方式，用于中转节点）
+     * 添加Relay服务（使用chain方式，用于中转节点）- 单个服务
      * @param node_id 节点ID
      * @param name 服务名称
      * @param port 监听端口
@@ -253,6 +253,55 @@ public class GostUtil {
 
         JSONArray services = new JSONArray();
         services.add(service);
+        return WebSocketServer.send_msg(node_id, services, "AddService");
+    }
+
+    /**
+     * 添加Relay服务（使用chain方式，用于中转节点）- TCP和UDP两个服务
+     * @param node_id 节点ID
+     * @param name 服务名称
+     * @param port 监听端口
+     * @param chainName chain名称
+     * @return 操作结果
+     */
+    public static GostDto AddRelayServicesWithChain(Long node_id, String name, Integer port, String chainName) {
+        JSONArray services = new JSONArray();
+
+        // ✅ 1. TCP服务
+        JSONObject tcpService = new JSONObject();
+        tcpService.put("name", name + "_tcp");
+        tcpService.put("addr", ":" + port);
+
+        JSONObject tcpListener = new JSONObject();
+        tcpListener.put("type", "tcp");
+        tcpService.put("listener", tcpListener);
+
+        JSONObject tcpHandler = new JSONObject();
+        tcpHandler.put("type", "relay");
+        tcpHandler.put("chain", chainName);
+        tcpService.put("handler", tcpHandler);
+
+        services.add(tcpService);
+
+        // ✅ 2. UDP服务
+        JSONObject udpService = new JSONObject();
+        udpService.put("name", name + "_udp");
+        udpService.put("addr", ":" + port);
+
+        JSONObject udpListener = new JSONObject();
+        udpListener.put("type", "udp");
+        JSONObject udpMetadata = new JSONObject();
+        udpMetadata.put("keepAlive", true);
+        udpListener.put("metadata", udpMetadata);
+        udpService.put("listener", udpListener);
+
+        JSONObject udpHandler = new JSONObject();
+        udpHandler.put("type", "relay");
+        udpHandler.put("chain", chainName);
+        udpService.put("handler", udpHandler);
+
+        services.add(udpService);
+
         return WebSocketServer.send_msg(node_id, services, "AddService");
     }
 
@@ -301,7 +350,7 @@ public class GostUtil {
     }
 
     /**
-     * 更新Relay服务（使用chain方式）
+     * 更新Relay服务（使用chain方式）- 单个服务
      */
     public static GostDto UpdateRelayServiceWithChain(Long node_id, String name, Integer port, String protocol, String chainName) {
         JSONObject service = new JSONObject();
@@ -325,11 +374,67 @@ public class GostUtil {
     }
 
     /**
-     * 删除Relay服务
+     * 更新Relay服务（使用chain方式）- TCP和UDP两个服务
+     */
+    public static GostDto UpdateRelayServicesWithChain(Long node_id, String name, Integer port, String chainName) {
+        JSONArray services = new JSONArray();
+
+        // ✅ 1. TCP服务
+        JSONObject tcpService = new JSONObject();
+        tcpService.put("name", name + "_tcp");
+        tcpService.put("addr", ":" + port);
+
+        JSONObject tcpListener = new JSONObject();
+        tcpListener.put("type", "tcp");
+        tcpService.put("listener", tcpListener);
+
+        JSONObject tcpHandler = new JSONObject();
+        tcpHandler.put("type", "relay");
+        tcpHandler.put("chain", chainName);
+        tcpService.put("handler", tcpHandler);
+
+        services.add(tcpService);
+
+        // ✅ 2. UDP服务
+        JSONObject udpService = new JSONObject();
+        udpService.put("name", name + "_udp");
+        udpService.put("addr", ":" + port);
+
+        JSONObject udpListener = new JSONObject();
+        udpListener.put("type", "udp");
+        JSONObject udpMetadata = new JSONObject();
+        udpMetadata.put("keepAlive", true);
+        udpListener.put("metadata", udpMetadata);
+        udpService.put("listener", udpListener);
+
+        JSONObject udpHandler = new JSONObject();
+        udpHandler.put("type", "relay");
+        udpHandler.put("chain", chainName);
+        udpService.put("handler", udpHandler);
+
+        services.add(udpService);
+
+        return WebSocketServer.send_msg(node_id, services, "UpdateService");
+    }
+
+    /**
+     * 删除Relay服务 - 单个服务
      */
     public static GostDto DeleteRelayService(Long node_id, String name) {
         JSONArray data = new JSONArray();
         data.add(name + "_relay");
+        JSONObject req = new JSONObject();
+        req.put("services", data);
+        return WebSocketServer.send_msg(node_id, req, "DeleteService");
+    }
+
+    /**
+     * 删除Relay服务 - TCP和UDP两个服务
+     */
+    public static GostDto DeleteRelayServices(Long node_id, String name) {
+        JSONArray data = new JSONArray();
+        data.add(name + "_tcp");
+        data.add(name + "_udp");
         JSONObject req = new JSONObject();
         req.put("services", data);
         return WebSocketServer.send_msg(node_id, req, "DeleteService");
